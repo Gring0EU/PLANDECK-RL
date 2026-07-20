@@ -13,9 +13,13 @@
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 <style>
 :root{--bg:#ffffff;--surface:#ffffff;--surface-2:#f7f7fa;--border:rgba(32,41,69,.14);--line:rgba(32,41,69,.4);--text:#202945;--text-soft:rgba(32,41,69,.6);--brand:#FF6C0E;--brand-dark:#e05f0a;--brand-soft:#ffede0;--radius-lg:20px;--radius-md:14px;--radius-sm:10px;--shadow-card:none;--shadow-pop:none;--planned:#4B5F80;--planned-bg:#eaf6fd;--progress:#FF6C0E;--progress-bg:#fff1e2;--done:#3BAF90;--done-bg:#e6f7f1;--danger:#AC5D85;--danger-bg:#f7e9f0}
-.dark{--bg:#202945;--surface:#26304f;--surface-2:#2e3a5c;--border:rgba(255,255,255,.14);--line:rgba(255,255,255,.3);--text:#f5f6fa;--text-soft:rgba(245,246,250,.65);--brand:#FFA400;--brand-soft:#3a3420;--planned-bg:#22344f;--progress-bg:#3a2e1c;--done-bg:#1c3a30;--danger-bg:#3a2430}
+.dark{color-scheme:dark;--bg:#14192b;--surface:#1c2338;--surface-2:#242b45;--border:rgba(255,255,255,.09);--line:rgba(255,255,255,.08);--text:#eef0f7;--text-soft:rgba(238,240,247,.58);--brand:#FF8A3D;--brand-dark:#FFA65C;--brand-soft:rgba(255,138,61,.16);--planned:#7AB8FF;--planned-bg:rgba(122,184,255,.14);--progress:#FF8A3D;--progress-bg:rgba(255,138,61,.14);--done:#4ECBA5;--done-bg:rgba(78,203,165,.14);--danger:#E894AC;--danger-bg:rgba(232,148,172,.14)}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;height:100%}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:999px}
+html{scrollbar-color:var(--border) var(--bg)}
 body{font-family:'Nunito',sans-serif;background:var(--bg);color:var(--text)}
 h1,h2,h3,.drawer-title,.brand-mark,.month-label{font-weight:800}
 .field-label,.drawer-section-label,.side-title,.login-sub,.weekday,.task-meta,.day-num{font-weight:300}
@@ -166,7 +170,11 @@ textarea.input{resize:vertical}
 .task-meta{font-size:11px;color:var(--text-soft)}
 .task-overdue{color:var(--danger);font-weight:700}
 .task-remove{border:none;background:transparent;color:var(--text-soft);cursor:pointer;font-size:15px}
-.new-task-form{display:grid;grid-template-columns:1fr 110px 130px auto;gap:6px}
+.new-task-form{display:flex;flex-wrap:wrap;gap:6px}
+.new-task-form input.input,.new-task-form select.input{flex:1 1 130px;min-width:0}
+.new-task-form .task-date-range{flex:1 1 100%;flex-wrap:wrap}
+.new-task-form .task-date-range input{flex:1 1 130px;min-width:0}
+.new-task-form button{flex:1 1 100%}
 
 /* personal view */
 .personal-view{display:flex;flex-direction:column;gap:24px}
@@ -234,6 +242,15 @@ textarea.input{resize:vertical}
 .history-row{display:flex;flex-direction:column;gap:2px;padding:8px 10px;background:var(--surface-2);border-radius:var(--radius-sm)}
 .history-text{font-size:12px;font-weight:600}
 .history-meta{font-size:11px;color:var(--text-soft);font-weight:300}
+.task-range-badge{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.03em;background:var(--surface-2);color:var(--text-soft);padding:2px 6px;border-radius:5px;margin-left:6px;vertical-align:middle}
+.task-date-range{display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap}
+.task-date-range input.input{min-width:0}
+.task-date-arrow{color:var(--text-soft);font-size:12px}
+.task-edit-dates{border:none;background:none;color:var(--brand);font-size:11px;font-weight:600;cursor:pointer;padding:0;margin-left:6px}
+.task-chip{display:flex;align-items:center;gap:6px;background:var(--surface-2);border:1px solid var(--border);border-radius:8px;padding:4px 7px;font-size:11px;font-weight:600;cursor:pointer;width:100%;text-align:left}
+.task-chip-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.task-chip-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.task-chip-done{opacity:.55;text-decoration:line-through}
 .tutorial-intro{font-size:13px;color:var(--text-soft);font-weight:300;margin:-4px 0 16px}
 .tutorial-list{display:flex;flex-direction:column;gap:10px}
 .tutorial-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-md);overflow:hidden}
