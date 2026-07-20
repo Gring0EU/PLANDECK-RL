@@ -21,7 +21,6 @@ function App(){
   const [weekDate,setWeekDate]=useState(new Date());
   const [selectedId,setSelectedId]=useState(null);
   const [newActivityDate,setNewActivityDate]=useState(null);
-  const [dark,setDark]=useState(false);
   const [toasts,setToasts]=useState([]);
   const [filters,setFilters]=useState({search:'',statuses:[],participant:'',category:''});
   const [userMenuOpen,setUserMenuOpen]=useState(false);
@@ -128,6 +127,9 @@ function App(){
     setActivities(as=>as.map(a=>a.id===activityId?{...a,tasks:[...a.tasks,{...task,id:U.uid(),done:false}]}:a));
     toast('Task added');
   }
+  function editTaskDates(activityId,taskId,startDate,deadline){
+    setActivities(as=>as.map(a=>a.id!==activityId?a:{...a,tasks:a.tasks.map(t=>t.id===taskId?{...t,startDate,deadline}:t)}));
+  }
   function toggleTask(activityId,taskId){
     setActivities(as=>as.map(a=>a.id!==activityId?a:{...a,tasks:a.tasks.map(t=>t.id===taskId?{...t,done:!t.done}:t)}));
   }
@@ -147,7 +149,7 @@ function App(){
     if(a) toast('"'+a.title+'" deleted');
   }
   function claimActivity(id){
-    setActivities(as=>as.map(a=>a.id===id?{...a,claimedBy:currentUser,claimedAt:new Date().toISOString()}:a));
+    setActivities(as=>as.map(a=>a.id===id?{...a,claimedBy:currentUser,claimedAt:new Date().toISOString(),participants:a.participants.includes(currentUser)?a.participants:[...a.participants,currentUser]}:a));
     toast('You claimed this activity');
   }
   function unclaimActivity(id){
@@ -171,7 +173,7 @@ function App(){
   const monthLabel=monthDate.toLocaleDateString(undefined,{month:'long',year:'numeric'});
 
   return (
-    <div className={"app-shell"+(dark?' dark':'')}>
+    <div className="app-shell">
       <header className="app-header">
         <div className="header-left">
           <span className="brand-mark">Plandeck</span>
@@ -184,7 +186,6 @@ function App(){
         </div>
         <div className="header-right">
           <button className="btn btn-primary btn-sm" onClick={()=>setNewActivityDate(U.todayIso())}>+ New Activity</button>
-          <button className="icon-btn" title="Toggle dark mode" onClick={()=>setDark(d=>!d)}>{dark?'☀':'☾'}</button>
           <div className="user-menu-wrap">
             <button className="user-chip" onClick={()=>setUserMenuOpen(o=>!o)}>{currentUser}</button>
             {userMenuOpen && (
@@ -211,7 +212,7 @@ function App(){
       </div>
       <ActivityDrawer activity={selected} team={team} currentUser={currentUser} onClose={()=>setSelectedId(null)}
         onChangeStatus={changeStatus} onChangeCategory={changeCategory} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
-        onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onDelete={deleteActivity}
+        onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onEditTaskDates={editTaskDates} onDelete={deleteActivity}
         onClaim={claimActivity} onUnclaim={unclaimActivity} />
       {newActivityDate && <NewActivityModal date={newActivityDate} team={team} onClose={()=>setNewActivityDate(null)} onCreate={createActivity} onAddTeammate={ensureTeammate} />}
       <Toasts toasts={toasts} onDismiss={id=>setToasts(ts=>ts.filter(t=>t.id!==id))} />
