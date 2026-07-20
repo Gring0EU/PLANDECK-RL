@@ -81,7 +81,17 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
   while(cells.length%7!==0) cells.push(null);
   const todayIso=U.todayIso();
   const byDate={};
-  activities.filter(filterFn).forEach(a=>{(byDate[a.date]=byDate[a.date]||[]).push(a);});
+  const filteredActivities=activities.filter(filterFn);
+  filteredActivities.forEach(a=>{(byDate[a.date]=byDate[a.date]||[]).push(a);});
+  const multiDayTasksByDate={};
+  filteredActivities.forEach(a=>a.tasks.forEach(t=>{
+    const start=t.startDate||t.deadline;
+    if(start===t.deadline) return;
+    for(let d=new Date(start+'T00:00:00');U.iso(d)<=t.deadline;d.setDate(d.getDate()+1)){
+      const dIso=U.iso(d);
+      (multiDayTasksByDate[dIso]=multiDayTasksByDate[dIso]||[]).push({...t,activityId:a.id,activityTitle:a.title,activityStatus:a.status});
+    }
+  }));
   const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   return (
     <div className="calendar">
@@ -91,6 +101,7 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
           if(d===null) return <div key={i} className="day-cell day-cell-empty"></div>;
           const dateIso=U.iso(new Date(year,month,d));
           const dayActivities=byDate[dateIso]||[];
+          const dayTasks=multiDayTasksByDate[dateIso]||[];
           const isToday=dateIso===todayIso;
           const isExpanded=expanded[dateIso];
           const visible=isExpanded?dayActivities:dayActivities.slice(0,3);
@@ -106,6 +117,12 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
               <div className="day-cards">
                 {visible.map(a=><ActivityMiniCard key={a.id} activity={a} onOpen={onOpenActivity} onDragStart={(e,id)=>e.dataTransfer.setData('text/plain',id)} />)}
                 {overflow>0 && <button className="day-more" onClick={()=>setExpanded(x=>({...x,[dateIso]:true}))}>+{overflow} more</button>}
+                {dayTasks.map(t=>(
+                  <button key={t.id+dateIso} className={"task-chip"+(t.done?' task-chip-done':'')} title={t.title+' \u2014 '+(t.assignee||'Unassigned')} onClick={()=>onOpenActivity(t.activityId)}>
+                    <span className="task-chip-dot" style={{background:U.statusMeta[t.activityStatus].color}}></span>
+                    <span className="task-chip-title">{t.title}</span>
+                  </button>
+                ))}
               </div>
             </div>
           );
@@ -169,14 +186,27 @@ function ParticipantChips({participants,team,onAdd,onRemove,onAddTeammate}){
   );
 }
 
-function TaskRow({task,onToggle,onRemove}){
+function TaskRow({task,onToggle,onRemove,onEditDates}){
   const overdue=U.isTaskOverdue(task);
+  const spansDays=task.startDate && task.startDate!==task.deadline;
+  const [editing,setEditing]=useState(false);
+  const [start,setStart]=useState(task.startDate||task.deadline);
+  const [end,setEnd]=useState(task.deadline);
   return (
     <div className={"task-row"+(overdue?' task-row-overdue':'')}>
       <input type="checkbox" checked={task.done} onChange={()=>onToggle(task.id)} />
       <div className="task-info">
-        <span className={"task-title"+(task.done?' task-done':'')}>{task.title}</span>
-        <span className="task-meta">{task.assignee||'Unassigned'} · <span className={overdue?'task-overdue':''}>{U.fmtDate(task.deadline)}{task.deadlineTime?' · '+task.deadlineTime:''}{overdue?' · Overdue':''}</span></span>
+        <span className={"task-title"+(task.done?' task-done':'')}>{task.title}{spansDays && <span className="task-range-badge">Multi-day</span>}</span>
+        {editing ? (
+          <div className="task-date-range">
+            <input className="input input-sm" type="date" value={start} onChange={e=>setStart(e.target.value)} />
+            <span className="task-date-arrow">{'\u2192'}</span>
+            <input className="input input-sm" type="date" value={end} onChange={e=>setEnd(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" onClick={()=>{const s=start,e2=end<s?s:end; onEditDates(task.id,s,e2); setEditing(false);}}>Save</button>
+          </div>
+        ) : (
+          <span className="task-meta">{task.assignee||'Unassigned'} · <span className={overdue?'task-overdue':''}>{spansDays?U.fmtDate(task.startDate)+' \u2192 '+U.fmtDate(task.deadline):U.fmtDate(task.deadline)}{task.deadlineTime?' · '+task.deadlineTime:''}{overdue?' · Overdue':''}</span>{onEditDates && <button className="task-edit-dates" onClick={()=>setEditing(true)}>edit dates</button>}</span>
+        )}
       </div>
       <button className="task-remove" onClick={()=>onRemove(task.id)}>×</button>
     </div>
@@ -186,14 +216,19 @@ function TaskRow({task,onToggle,onRemove}){
 function NewTaskForm({team,onAdd}){
   const [title,setTitle]=useState('');
   const [assignee,setAssignee]=useState(team[0]||'');
+  const [startDate,setStartDate]=useState(U.todayIso());
   const [deadline,setDeadline]=useState(U.todayIso());
   return (
-    <form className="new-task-form" onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onAdd({title:title.trim(),assignee,deadline}); setTitle('');}}>
+    <form className="new-task-form" onSubmit={e=>{e.preventDefault(); if(!title.trim())return; const end=deadline<startDate?startDate:deadline; onAdd({title:title.trim(),assignee,startDate,deadline:end}); setTitle('');}}>
       <input className="input input-sm" placeholder="New task" value={title} onChange={e=>setTitle(e.target.value)} />
       <select className="input input-sm" value={assignee} onChange={e=>setAssignee(e.target.value)}>
         {team.map(t=><option key={t} value={t}>{t}</option>)}
       </select>
-      <input className="input input-sm" type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} />
+      <div className="task-date-range">
+        <input className="input input-sm" type="date" title="Start date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
+        <span className="task-date-arrow">→</span>
+        <input className="input input-sm" type="date" title="Deadline" value={deadline} onChange={e=>setDeadline(e.target.value)} />
+      </div>
       <button className="btn btn-secondary btn-sm" type="submit">Add task</button>
     </form>
   );
@@ -215,7 +250,7 @@ function CategoryPicker({category,onChange}){
   );
 }
 
-function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onDelete,onClaim,onUnclaim}){
+function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onEditTaskDates,onDelete,onClaim,onUnclaim}){
   if(!activity) return null;
   return (
     <div className="drawer-overlay" onClick={onClose}>
@@ -248,7 +283,7 @@ function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChan
           <div className="drawer-section-label">Tasks</div>
           <div className="task-list">
             {activity.tasks.length===0 && <div className="empty-hint">No tasks yet.</div>}
-            {activity.tasks.map(t=><TaskRow key={t.id} task={t} onToggle={id=>onToggleTask(activity.id,id)} onRemove={id=>onRemoveTask(activity.id,id)} />)}
+            {activity.tasks.map(t=><TaskRow key={t.id} task={t} onToggle={id=>onToggleTask(activity.id,id)} onRemove={id=>onRemoveTask(activity.id,id)} onEditDates={(id,s,e)=>onEditTaskDates(activity.id,id,s,e)} />)}
           </div>
           <NewTaskForm team={team} onAdd={t=>onAddTask(activity.id,t)} />
         </div>
@@ -336,8 +371,18 @@ function ConfirmRemoveModal({name,onConfirm,onCancel}){
 }
 
 function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,view,setView,onAddTeammate,onRemoveTeammate,onlineUsers}){
+  const myTasksRaw=[];
+  activities.forEach(a=>a.tasks.forEach(t=>{if((t.assignee===currentUser || (!t.assignee && a.participants.includes(currentUser))) && !t.done) myTasksRaw.push({...t,activityId:a.id,activityTitle:a.title,recurring:a.recurring,date:a.date});}));
+  const seenRecurring=new Set();
   const myTasks=[];
-  activities.forEach(a=>a.tasks.forEach(t=>{if(t.assignee===currentUser && !t.done) myTasks.push({...t,activityId:a.id,activityTitle:a.title});}));
+  myTasksRaw.sort((a,b)=>a.date<b.date?-1:1).forEach(t=>{
+    if(t.recurring){
+      const key=t.activityTitle;
+      if(seenRecurring.has(key)) return;
+      seenRecurring.add(key);
+    }
+    myTasks.push(t);
+  });
   myTasks.sort((a,b)=>a.deadline<b.deadline?-1:1);
   const [newName,setNewName]=useState('');
   const [pendingRemove,setPendingRemove]=useState(null);
@@ -371,9 +416,9 @@ function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,
         <div className="side-title">My Tasks</div>
         {myTasks.length===0 && <div className="empty-hint">Nothing assigned yet.</div>}
         {myTasks.slice(0,5).map(t=>(
-          <button key={t.id} className="side-task" onClick={()=>onOpenActivity(t.activityId)}>
-            <span className="side-task-title">{t.title}</span>
-            <span className="side-task-sub">{t.activityTitle} · {U.fmtDate(t.deadline)}</span>
+          <button key={t.id+t.activityId} className="side-task" onClick={()=>onOpenActivity(t.activityId)}>
+            <span className="side-task-title">{t.recurring?t.activityTitle:t.title}</span>
+            <span className="side-task-sub">{t.recurring?t.title:t.activityTitle} {'\u00b7'} {U.fmtDate(t.deadline)}</span>
           </button>
         ))}
       </div>
@@ -427,7 +472,7 @@ function PersonalView({currentUser,activities,onOpenActivity,onToggleTask}){
   });
   const myActivities=[...nonRecurringMine,...activeRecurring].sort((a,b)=>a.date<b.date?-1:1);
   const myTasks=[];
-  myActivities.forEach(a=>a.tasks.forEach(t=>{if(t.assignee===currentUser) myTasks.push({...t,activityId:a.id,activityTitle:a.title});}));
+  myActivities.forEach(a=>a.tasks.forEach(t=>{if(t.assignee===currentUser || (!t.assignee && a.participants.includes(currentUser))) myTasks.push({...t,activityId:a.id,activityTitle:a.title});}));
   const upcoming=myTasks.filter(t=>!t.done && U.daysBetween(t.deadline)>=0 && U.daysBetween(t.deadline)<=7).sort((a,b)=>a.deadline<b.deadline?-1:1);
   const overdue=myTasks.filter(t=>!t.done && U.daysBetween(t.deadline)<0).sort((a,b)=>a.deadline<b.deadline?-1:1);
   const completed=myTasks.filter(t=>t.done).sort((a,b)=>a.deadline<b.deadline?1:-1);
