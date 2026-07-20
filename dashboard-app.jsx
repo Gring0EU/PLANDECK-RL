@@ -23,8 +23,9 @@ function App(){
   const [newActivityDate,setNewActivityDate]=useState(null);
   const [dark,setDark]=useState(false);
   const [toasts,setToasts]=useState([]);
-  const [filters,setFilters]=useState({search:'',statuses:[],participant:''});
+  const [filters,setFilters]=useState({search:'',statuses:[],participant:'',category:''});
   const [userMenuOpen,setUserMenuOpen]=useState(false);
+  const [onlineUsers,setOnlineUsers]=useState([]);
 
   useEffect(()=>{saveStored({team,activities,currentUser});},[team,activities,currentUser]);
 
@@ -45,6 +46,13 @@ function App(){
     if(skipNextSave.current){skipNextSave.current=false; return;}
     window.DashDB.save({team,activities});
   },[team,activities]);
+
+  useEffect(()=>{
+    if(!currentUser) return;
+    const stopPresence=window.DashDB.goOnline(currentUser);
+    const unsub=window.DashDB.subscribePresence(setOnlineUsers);
+    return ()=>{stopPresence();unsub();};
+  },[currentUser]);
 
   function toast(msg){
     const id=U.uid();
@@ -67,6 +75,10 @@ function App(){
     setActivities(as=>as.map(a=>a.id===id?{...a,status}:a));
     toast('Status changed to '+U.statusMeta[status].label);
   }
+  function changeCategory(id,category){
+    setActivities(as=>as.map(a=>a.id===id?{...a,category}:a));
+    toast('Category set to '+(category||'None'));
+  }
 
   function moveActivity(id,date){
     setActivities(as=>as.map(a=>a.id===id?{...a,date}:a));
@@ -78,8 +90,35 @@ function App(){
     setActivities(as=>as.map(a=>a.id===activityId?{...a,participants:[...a.participants,name]}:a));
     toast(name+' added to activity');
   }
+  function removeTeammate(name){
+    if(name==='Assia.D'){ toast('Assia.D cannot be removed'); return; }
+    setActivities(as=>as.map(a=>{
+      if(!a.participants.includes(name) && !a.tasks.some(t=>t.assignee===name)) return a;
+      const reassignTo='Assia.D';
+      let reassignedCount=0;
+      const tasks=a.tasks.map(t=>{
+        if(t.assignee===name){ reassignedCount++; return {...t,assignee:reassignTo}; }
+        return t;
+      });
+      const historyEntry={id:U.uid(),at:new Date().toISOString(),by:currentUser,text:name+' removed from the team'+(reassignedCount?' \u2014 '+reassignedCount+' task'+(reassignedCount>1?'s':'')+' reassigned to '+reassignTo:'')};
+      return {...a,participants:a.participants.filter(p=>p!==name),tasks,history:[...(a.history||[]),historyEntry]};
+    }));
+    setTeam(t=>t.filter(x=>x!==name));
+    toast(name+' removed from the team \u2014 tasks reassigned to Assia.D');
+  }
   function removeParticipant(activityId,name){
-    setActivities(as=>as.map(a=>a.id===activityId?{...a,participants:a.participants.filter(p=>p!==name)}:a));
+    setActivities(as=>as.map(a=>{
+      if(a.id!==activityId) return a;
+      const reassignTo='Assia.D';
+      let reassignedCount=0;
+      const tasks=a.tasks.map(t=>{
+        if(t.assignee===name && name!==reassignTo){ reassignedCount++; return {...t,assignee:reassignTo}; }
+        return t;
+      });
+      const historyEntry={id:U.uid(),at:new Date().toISOString(),by:currentUser,text:name+' removed from participants'+(reassignedCount?' \u2014 '+reassignedCount+' task'+(reassignedCount>1?'s':'')+' reassigned to '+reassignTo:'')};
+      return {...a,participants:a.participants.filter(p=>p!==name),tasks,history:[...(a.history||[]),historyEntry]};
+    }));
+    toast(name+' removed'+(name!=='Assia.D'?' \u2014 tasks reassigned to Assia.D':''));
   }
   function addTeammateAndParticipant(name,activityId){
     ensureTeammate(name);
@@ -120,6 +159,7 @@ function App(){
     if(filters.search && !a.title.toLowerCase().includes(filters.search.toLowerCase()) && !a.description.toLowerCase().includes(filters.search.toLowerCase())) return false;
     if(filters.statuses.length && !filters.statuses.includes(a.status)) return false;
     if(filters.participant && !a.participants.includes(filters.participant)) return false;
+    if(filters.category && a.category!==filters.category) return false;
     return true;
   }
 
@@ -157,18 +197,20 @@ function App(){
       </header>
       <div className="app-body">
         <Sidebar team={team} currentUser={currentUser} activities={activities} filters={filters} setFilters={setFilters}
-          onOpenActivity={setSelectedId} view={view} setView={setView} onAddTeammate={ensureTeammate} />
+          onOpenActivity={setSelectedId} view={view} setView={setView} onAddTeammate={ensureTeammate} onRemoveTeammate={removeTeammate} onlineUsers={onlineUsers} />
         <main className="app-main">
           <LiveActivityBar activities={activities} onOpenActivity={setSelectedId} />
           {view==='calendar'
             ? <CalendarGrid monthDate={monthDate} activities={activities} onOpenActivity={setSelectedId} onMoveActivity={moveActivity} onNewActivity={setNewActivityDate} filterFn={filterFn} />
             : view==='personal'
             ? <PersonalView currentUser={currentUser} activities={activities} onOpenActivity={setSelectedId} onToggleTask={toggleTask} />
-            : <WeeklySummary activities={activities} team={team} weekDate={weekDate} setWeekDate={setWeekDate} onOpenActivity={setSelectedId} onToggleTask={toggleTask} />}
+            : view==='weekly'
+            ? <WeeklySummary activities={activities} team={team} weekDate={weekDate} setWeekDate={setWeekDate} onOpenActivity={setSelectedId} onToggleTask={toggleTask} />
+            : <TutorialLibrary />}
         </main>
       </div>
       <ActivityDrawer activity={selected} team={team} currentUser={currentUser} onClose={()=>setSelectedId(null)}
-        onChangeStatus={changeStatus} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
+        onChangeStatus={changeStatus} onChangeCategory={changeCategory} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
         onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onDelete={deleteActivity}
         onClaim={claimActivity} onUnclaim={unclaimActivity} />
       {newActivityDate && <NewActivityModal date={newActivityDate} team={team} onClose={()=>setNewActivityDate(null)} onCreate={createActivity} onAddTeammate={ensureTeammate} />}
