@@ -51,7 +51,7 @@ function normalizeActivities(raw){
   return arr.filter(Boolean).map(a=>({
     ...a,
     participants:Array.isArray(a.participants)?a.participants:(a.participants?Object.values(a.participants):[]),
-    tasks:Array.isArray(a.tasks)?a.tasks:(a.tasks?Object.values(a.tasks):[]),
+    tasks:Array.isArray(a.tasks)?a.tasks.map(t=>({...t,startDate:t.startDate||t.deadline})):(a.tasks?Object.values(a.tasks).map(t=>({...t,startDate:t.startDate||t.deadline})):[]),
     history:Array.isArray(a.history)?a.history:(a.history?Object.values(a.history):[])
   }));
 }
@@ -61,6 +61,32 @@ function normalizeTeam(raw){
 }
 window.DashData={buildSeedData,syncRecurringActivities,normalizeActivities,normalizeTeam};
 window.TUTORIALS=[
+  {
+    id:'app-basics',
+    title:'Using Plandeck',
+    tag:'Getting Started',
+    summary:'A quick tour of the dashboard \u2014 calendar, activities, tasks, and the views in the sidebar.',
+    steps:[
+      'Log in with just your name \u2014 no password needed. This is how the app identifies you everywhere (tasks, participants, claims).',
+      'The main Calendar shows every activity as a colored card on its date. Card color reflects status: blue = Planned, orange = In Progress, green = Done.',
+      'Click any activity card to open its details in the right-hand drawer: description, status, category, participants, tasks, and history.',
+      'Click the status pill at the top of the drawer to change Planned \u2192 In Progress \u2192 Done \u2014 the color updates everywhere instantly.',
+      'Click the category badge next to it to tag the activity\u2019s business area (Equity, Fixed Income, Funds, Alternative, CIO, DPM, Advisory, Banker).',
+      'Use "+ Add" under Participants to add yourself or a teammate to an activity, or the \u00d7 on a chip to remove someone (their tasks reassign automatically to Assia.D).',
+      'Add tasks inside an activity with a title, assignee, and deadline; check the box to mark one done. Set different start and end dates to make a task span multiple days \u2014 it will show on every day in that range on the calendar as one task, not duplicates.',
+      'Click "Claim Activity" to mark yourself as actively working on it \u2014 it shows your name and a live badge, adds you as a participant automatically, and appears in the "Currently Active" bar at the top for everyone to see.',
+      'Click "+ New Activity" (top right) or the + on any calendar day to create a new activity.',
+      'Drag a card to a different day on the calendar to reschedule it.',
+      'Use "Delete activity" at the bottom of the drawer to remove an activity entirely (asks for confirmation first).',
+      'Use the sidebar to switch views: My Space (your activities and tasks), Weekly Summary (team recap with charts), and Tutorial Library (these guides).',
+      'The sidebar also has Filters (search, status, participant, category), a Team block to add or remove teammates, and Team Presence showing who\u2019s online right now and what they\u2019re working on.',
+      'Weekly Summary shows donut charts for activity-by-category and status, task completion stats, and a team workload leaderboard (crown for top contributor).'
+    ],
+    notes:[
+      'Everything you do is shared instantly with the rest of the team \u2014 there\u2019s no separate "save" step',
+      'Recurring activities (like The Blog or Wrap Up) show up automatically on their scheduled days; My Space only shows the current active occurrence of each to avoid clutter'
+    ]
+  },
   {
     id:'blog',
     title:'The Blog \u2014 Daily "Syz The Moment"',
@@ -129,8 +155,8 @@ window.TUTORIALS=[
       'In HubSpot, filter by "fast food for thought"',
       'Find last week\u2019s Wrapup post \u2192 click Clone \u2192 delete "(clone)" from the end of the title',
       'Open the email from Charles and download/save the wrapup PDF attachment',
-      {text:'Copy the new title and replace the old one in HubSpot',images:['assets/tut-wrapup-upload-1.png']},
-      {text:'Copy the new text block and replace the old block',images:['assets/tut-wrapup-upload-2.png']},
+      {text:'Copy the new title and replace the old one in HubSpot',images:['assets/tut-wrapup-upload-1.png','assets/tut-wrapup-upload-2.png']},
+      'Copy the new text block and replace the old block',
       'Copy roughly half of the text block \u2192 open Settings \u2192 Metadata \u2192 delete old text \u2192 paste the copied section \u2192 close',
       {text:'Click "PDF" \u2192 pencil icon \u2192 Replace \u2192 Upload \u2192 upload the saved wrapup \u2192 select it under "recently uploaded" \u2192 Apply',images:['assets/tut-wrapup-upload-3.png']},
       'Click Preview \u2192 open the PDF from the new tab \u2192 copy its link',
@@ -150,6 +176,7 @@ window.DashUtils={
   fmtDate:iso=>{const d=new Date(iso+'T00:00:00');return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});},
   fmtDateLong:iso=>{const d=new Date(iso+'T00:00:00');return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});},
   daysBetween:(iso)=>{const t=new Date(window.DashUtils.todayIso()+'T00:00:00');const d=new Date(iso+'T00:00:00');return Math.round((d-t)/86400000);},
+  dateInRange:(dateIso,startIso,endIso)=>dateIso>=(startIso||endIso) && dateIso<=endIso,
   isTaskOverdue:(task)=>{if(task.done) return false; const db=window.DashUtils.daysBetween(task.deadline); if(db<0) return true; if(db>0) return false; if(!task.deadlineTime) return false; const now=new Date(); const [h,m]=task.deadlineTime.split(':').map(Number); return now.getHours()>h || (now.getHours()===h && now.getMinutes()>m);},
   fmtTime:(t)=>t?t:'',
   statusMeta:{
