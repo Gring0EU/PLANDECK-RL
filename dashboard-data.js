@@ -51,7 +51,8 @@ function normalizeActivities(raw){
   return arr.filter(Boolean).map(a=>({
     ...a,
     participants:Array.isArray(a.participants)?a.participants:(a.participants?Object.values(a.participants):[]),
-    tasks:Array.isArray(a.tasks)?a.tasks.map(t=>({...t,startDate:t.startDate||t.deadline})):(a.tasks?Object.values(a.tasks).map(t=>({...t,startDate:t.startDate||t.deadline})):[]),
+    tasks:Array.isArray(a.tasks)?a.tasks:(a.tasks?Object.values(a.tasks):[]),
+    endDate:a.endDate||a.date,
     history:Array.isArray(a.history)?a.history:(a.history?Object.values(a.history):[])
   }));
 }
@@ -73,7 +74,8 @@ window.TUTORIALS=[
       'Click the status pill at the top of the drawer to change Planned \u2192 In Progress \u2192 Done \u2014 the color updates everywhere instantly.',
       'Click the category badge next to it to tag the activity\u2019s business area (Equity, Fixed Income, Funds, Alternative, CIO, DPM, Advisory, Banker).',
       'Use "+ Add" under Participants to add yourself or a teammate to an activity, or the \u00d7 on a chip to remove someone (their tasks reassign automatically to Assia.D).',
-      'Add tasks inside an activity with a title, assignee, and deadline; check the box to mark one done. Set different start and end dates to make a task span multiple days \u2014 it will show on every day in that range on the calendar as one task, not duplicates.',
+      'Click "+ New Activity" (top right) or the + on any calendar day to create a new activity. Set a different End date to make the activity span multiple days \u2014 it shows on every day in that range as one entity, not duplicates.',
+      'Add tasks inside an activity with a title, assignee, and a single deadline; check the box to mark one done.',
       'Click "Claim Activity" to mark yourself as actively working on it \u2014 it shows your name and a live badge, adds you as a participant automatically, and appears in the "Currently Active" bar at the top for everyone to see.',
       'Click "+ New Activity" (top right) or the + on any calendar day to create a new activity.',
       'Drag a card to a different day on the calendar to reschedule it.',
