@@ -442,8 +442,13 @@ function renderMessageText(text,team){
 
 const CHAT_ADMIN='Hugo.M';
 const emptySession={active:false,messages:[]};
+function unreadCount(session,user){
+  if(!session||!session.messages||!session.messages.length) return 0;
+  const lastRead=session.lastReadAt&&session.lastReadAt[user];
+  return session.messages.filter(m=>m.from!==user&&(!lastRead||m.at>lastRead)).length;
+}
 
-function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd}){
+function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd,onDelete,onMarkRead}){
   const isAdmin=currentUser===CHAT_ADMIN;
   const [open,setOpen]=useState(false);
   const [thread,setThread]=useState(null);
@@ -452,12 +457,17 @@ function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd}){
   const [showGifs,setShowGifs]=useState(false);
   const scrollRef=useRef(null);
   const others=team.filter(t=>t!==CHAT_ADMIN);
-  const myThreads=isAdmin ? others : (chat[currentUser]&&chat[currentUser].active&&chat[currentUser].messages.length>0 ? [CHAT_ADMIN] : []);
+  const hasHistory=s=>!!(s&&s.messages&&s.messages.length>0);
+  const myThreads=isAdmin ? others : (hasHistory(chat[currentUser]) ? [CHAT_ADMIN] : []);
   const visible=isAdmin || myThreads.length>0;
   const activeThreadName=isAdmin?thread:CHAT_ADMIN;
   const session=activeThreadName ? (isAdmin?(chat[activeThreadName]||emptySession):(chat[currentUser]||emptySession)) : emptySession;
+  const totalUnread=isAdmin ? others.reduce((sum,t)=>sum+unreadCount(chat[t],currentUser),0) : unreadCount(chat[currentUser],currentUser);
   useEffect(()=>{if(scrollRef.current) scrollRef.current.scrollTop=scrollRef.current.scrollHeight;},[session.messages.length,open,thread]);
   useEffect(()=>{if(!isAdmin && myThreads.length && !thread) setThread(CHAT_ADMIN);},[isAdmin,myThreads.length,thread]);
+  useEffect(()=>{
+    if(open && activeThreadName && session.messages.length>0) onMarkRead(isAdmin?activeThreadName:currentUser);
+  },[open,activeThreadName,session.messages.length]);
   if(!visible) return null;
   function submit(e){
     e&&e.preventDefault();
@@ -478,15 +488,22 @@ function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd}){
     setText(t=>t.replace(/@[A-Za-z0-9._]*$/,'@'+name+' '));
     setShowMentions(false);
   }
+  const showLog=isAdmin ? (activeThreadName && (session.active||hasHistory(session))) : hasHistory(session);
+  const showStartPrompt=isAdmin && activeThreadName && !session.active && !hasHistory(session);
   return (
     <div className={"chat-dock"+(open?' chat-dock-open':'')}>
-      {!open && <button className="chat-toggle" onClick={()=>setOpen(true)}>💬 Chat</button>}
+      {!open && (
+        <button className={"chat-toggle"+(totalUnread>0?' chat-toggle-alert':'')} onClick={()=>setOpen(true)}>
+          💬 Chat{totalUnread>0 && <span className="chat-badge">{totalUnread>9?'9+':totalUnread}</span>}
+        </button>
+      )}
       {open && (
         <div className="chat-panel">
           <div className="chat-head">
             <span>{isAdmin?'Direct Chats':'Chat with '+CHAT_ADMIN}</span>
             <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
               {isAdmin && activeThreadName && session.active && <button className="btn btn-secondary btn-sm" onClick={()=>onEnd(activeThreadName)}>End chat</button>}
+              {isAdmin && activeThreadName && hasHistory(session) && <button className="btn btn-secondary btn-sm" onClick={()=>{if(confirm('Delete this conversation permanently?')) onDelete(activeThreadName);}}>Delete</button>}
               <button className="drawer-close" onClick={()=>setOpen(false)}>×</button>
             </div>
           </div>
@@ -494,18 +511,19 @@ function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd}){
             <div className="chat-tabs">
               {others.map(t=>{
                 const s=chat[t];
-                return <button key={t} className={"chat-tab"+(thread===t?' chat-tab-active':'')+(s&&s.active?' chat-tab-live':'')} onClick={()=>setThread(t)}>{t}</button>;
+                const u=unreadCount(s,currentUser);
+                return <button key={t} className={"chat-tab"+(thread===t?' chat-tab-active':'')+(s&&s.active?' chat-tab-live':'')} onClick={()=>setThread(t)}>{t}{u>0 && <span className="chat-tab-badge">{u}</span>}</button>;
               })}
             </div>
           )}
           {isAdmin && !activeThreadName && <div className="empty-hint" style={{padding:'16px'}}>Pick a teammate to chat with.</div>}
-          {isAdmin && activeThreadName && !session.active && (
+          {showStartPrompt && (
             <div className="chat-empty-admin">
               <p className="empty-hint">No active chat with {activeThreadName}.</p>
               <button className="btn btn-primary btn-sm" onClick={()=>onStart(activeThreadName)}>Start chat</button>
             </div>
           )}
-          {(!isAdmin || (activeThreadName && session.active)) && (
+          {showLog && (
             <>
               <div className="chat-messages" ref={scrollRef}>
                 {session.messages.length===0 && <div className="empty-hint">No messages yet.</div>}
@@ -517,21 +535,29 @@ function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd}){
                   </div>
                 ))}
               </div>
-              {showMentions && (
+              {!session.active && (
+                <div className="chat-ended-note">
+                  This conversation has ended.
+                  {isAdmin && <button className="btn btn-primary btn-sm" onClick={()=>onStart(activeThreadName)}>Resume chat</button>}
+                </div>
+              )}
+              {session.active && showMentions && (
                 <div className="chat-mentions">
                   {team.filter(t=>t!==currentUser).map(t=><button key={t} className="picker-item" onClick={()=>pickMention(t)}>{t}</button>)}
                 </div>
               )}
-              {showGifs && (
+              {session.active && showGifs && (
                 <div className="chat-gifs">
                   {MEME_GIFS.map(g=><button key={g.url} className="chat-gif-thumb" title={g.label} onClick={()=>sendGif(g.url)}><img src={g.url} alt={g.label} /></button>)}
                 </div>
               )}
-              <form className="chat-input-row" onSubmit={submit}>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setShowGifs(o=>!o)}>GIF</button>
-                <input className="input input-sm" placeholder="Message… use @ to mention" value={text} onChange={e=>onTextChange(e.target.value)} />
-                <button className="btn btn-primary btn-sm" type="submit">Send</button>
-              </form>
+              {session.active && (
+                <form className="chat-input-row" onSubmit={submit}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setShowGifs(o=>!o)}>GIF</button>
+                  <input className="input input-sm" placeholder="Message… use @ to mention" value={text} onChange={e=>onTextChange(e.target.value)} />
+                  <button className="btn btn-primary btn-sm" type="submit">Send</button>
+                </form>
+              )}
             </>
           )}
         </div>
