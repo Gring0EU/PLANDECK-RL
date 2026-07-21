@@ -85,6 +85,7 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
   filteredActivities.forEach(a=>{
     const end=a.endDate||a.date;
     for(let d=new Date(a.date+'T00:00:00');U.iso(d)<=end;d.setDate(d.getDate()+1)){
+      if(d.getDay()===0||d.getDay()===6) continue;
       const dIso=U.iso(d);
       (byDate[dIso]=byDate[dIso]||[]).push(a);
     }
@@ -114,7 +115,16 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
                 {visible.map(a=>{
                   const end=a.endDate||a.date;
                   const spans=end>a.date;
-                  const spanInfo=spans?{day:Math.round((new Date(dateIso+'T00:00:00')-new Date(a.date+'T00:00:00'))/86400000)+1,total:Math.round((new Date(end+'T00:00:00')-new Date(a.date+'T00:00:00'))/86400000)+1}:null;
+                  let spanInfo=null;
+                  if(spans){
+                    let day=0,total=0;
+                    for(let d=new Date(a.date+'T00:00:00');U.iso(d)<=end;d.setDate(d.getDate()+1)){
+                      if(d.getDay()===0||d.getDay()===6) continue;
+                      total++;
+                      if(U.iso(d)<=dateIso) day=total;
+                    }
+                    spanInfo={day,total};
+                  }
                   return <ActivityMiniCard key={a.id} activity={a} spanInfo={spanInfo} onOpen={onOpenActivity} onDragStart={(e,id)=>e.dataTransfer.setData('text/plain',id)} />;
                 })}
                 {overflow>0 && <button className="day-more" onClick={()=>setExpanded(x=>({...x,[dateIso]:true}))}>+{overflow} more</button>}
@@ -408,6 +418,124 @@ function EditActivityModal({activity,team,onClose,onSave}){
           <button className="btn btn-primary btn-block" type="submit" style={{marginTop:'16px'}}>Save changes</button>
         </form>
       </div>
+    </div>
+  );
+}
+
+const MEME_GIFS=[
+  {label:'Thumbs up',url:'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif'},
+  {label:'Clapping',url:'https://media.giphy.com/media/g9582DNuQppxC/giphy.gif'},
+  {label:'Mind blown',url:'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif'},
+  {label:'Party',url:'https://media.giphy.com/media/3o6Zt6ML6BklcajjsA/giphy.gif'},
+  {label:'Dancing',url:'https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif'},
+  {label:'Facepalm',url:'https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif'},
+];
+
+function renderMessageText(text,team){
+  const parts=text.split(/(@[A-Za-z0-9._]+)/g);
+  return parts.map((p,i)=>{
+    const name=p.slice(1);
+    if(p.startsWith('@') && team.includes(name)) return <span key={i} className="mention-tag">{p}</span>;
+    return p;
+  });
+}
+
+const CHAT_ADMIN='Hugo.M';
+const emptySession={active:false,messages:[]};
+
+function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd}){
+  const isAdmin=currentUser===CHAT_ADMIN;
+  const [open,setOpen]=useState(false);
+  const [thread,setThread]=useState(null);
+  const [text,setText]=useState('');
+  const [showMentions,setShowMentions]=useState(false);
+  const [showGifs,setShowGifs]=useState(false);
+  const scrollRef=useRef(null);
+  const others=team.filter(t=>t!==CHAT_ADMIN);
+  const myThreads=isAdmin ? others : (chat[currentUser]&&chat[currentUser].active&&chat[currentUser].messages.length>0 ? [CHAT_ADMIN] : []);
+  const visible=isAdmin || myThreads.length>0;
+  const activeThreadName=isAdmin?thread:CHAT_ADMIN;
+  const session=activeThreadName ? (isAdmin?(chat[activeThreadName]||emptySession):(chat[currentUser]||emptySession)) : emptySession;
+  useEffect(()=>{if(scrollRef.current) scrollRef.current.scrollTop=scrollRef.current.scrollHeight;},[session.messages.length,open,thread]);
+  useEffect(()=>{if(!isAdmin && myThreads.length && !thread) setThread(CHAT_ADMIN);},[isAdmin,myThreads.length,thread]);
+  if(!visible) return null;
+  function submit(e){
+    e&&e.preventDefault();
+    if(!text.trim()||!activeThreadName) return;
+    onSend(isAdmin?activeThreadName:currentUser,{text:text.trim()});
+    setText(''); setShowMentions(false);
+  }
+  function sendGif(url){
+    if(!activeThreadName) return;
+    onSend(isAdmin?activeThreadName:currentUser,{text:'',gif:url});
+    setShowGifs(false);
+  }
+  function onTextChange(v){
+    setText(v);
+    setShowMentions(/@[A-Za-z0-9._]*$/.test(v));
+  }
+  function pickMention(name){
+    setText(t=>t.replace(/@[A-Za-z0-9._]*$/,'@'+name+' '));
+    setShowMentions(false);
+  }
+  return (
+    <div className={"chat-dock"+(open?' chat-dock-open':'')}>
+      {!open && <button className="chat-toggle" onClick={()=>setOpen(true)}>💬 Chat</button>}
+      {open && (
+        <div className="chat-panel">
+          <div className="chat-head">
+            <span>{isAdmin?'Direct Chats':'Chat with '+CHAT_ADMIN}</span>
+            <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+              {isAdmin && activeThreadName && session.active && <button className="btn btn-secondary btn-sm" onClick={()=>onEnd(activeThreadName)}>End chat</button>}
+              <button className="drawer-close" onClick={()=>setOpen(false)}>×</button>
+            </div>
+          </div>
+          {isAdmin && (
+            <div className="chat-tabs">
+              {others.map(t=>{
+                const s=chat[t];
+                return <button key={t} className={"chat-tab"+(thread===t?' chat-tab-active':'')+(s&&s.active?' chat-tab-live':'')} onClick={()=>setThread(t)}>{t}</button>;
+              })}
+            </div>
+          )}
+          {isAdmin && !activeThreadName && <div className="empty-hint" style={{padding:'16px'}}>Pick a teammate to chat with.</div>}
+          {isAdmin && activeThreadName && !session.active && (
+            <div className="chat-empty-admin">
+              <p className="empty-hint">No active chat with {activeThreadName}.</p>
+              <button className="btn btn-primary btn-sm" onClick={()=>onStart(activeThreadName)}>Start chat</button>
+            </div>
+          )}
+          {(!isAdmin || (activeThreadName && session.active)) && (
+            <>
+              <div className="chat-messages" ref={scrollRef}>
+                {session.messages.length===0 && <div className="empty-hint">No messages yet.</div>}
+                {session.messages.map(m=>(
+                  <div key={m.id} className={"chat-msg"+(m.from===currentUser?' chat-msg-mine':'')}>
+                    <div className="chat-msg-head"><span className="avatar avatar-xs">{U.initials(m.from)}</span><span className="chat-msg-from">{m.from}</span><span className="chat-msg-time">{U.fmtTimeOfDay(m.at)}</span></div>
+                    {m.text && <div className="chat-msg-text">{renderMessageText(m.text,team)}</div>}
+                    {m.gif && <img className="chat-msg-gif" src={m.gif} alt="gif" />}
+                  </div>
+                ))}
+              </div>
+              {showMentions && (
+                <div className="chat-mentions">
+                  {team.filter(t=>t!==currentUser).map(t=><button key={t} className="picker-item" onClick={()=>pickMention(t)}>{t}</button>)}
+                </div>
+              )}
+              {showGifs && (
+                <div className="chat-gifs">
+                  {MEME_GIFS.map(g=><button key={g.url} className="chat-gif-thumb" title={g.label} onClick={()=>sendGif(g.url)}><img src={g.url} alt={g.label} /></button>)}
+                </div>
+              )}
+              <form className="chat-input-row" onSubmit={submit}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setShowGifs(o=>!o)}>GIF</button>
+                <input className="input input-sm" placeholder="Message… use @ to mention" value={text} onChange={e=>onTextChange(e.target.value)} />
+                <button className="btn btn-primary btn-sm" type="submit">Send</button>
+              </form>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -779,4 +907,4 @@ function WeeklySummary({activities,team,weekDate,setWeekDate,onOpenActivity,onTo
   );
 }
 
-Object.assign(window,{LoginScreen,Toasts,StatusPill,CalendarGrid,ActivityDrawer,NewActivityModal,EditActivityModal,Sidebar,PersonalView,WeeklySummary,LiveActivityBar});
+Object.assign(window,{LoginScreen,Toasts,StatusPill,CalendarGrid,ActivityDrawer,NewActivityModal,EditActivityModal,Sidebar,PersonalView,WeeklySummary,LiveActivityBar,ChatPanel});
