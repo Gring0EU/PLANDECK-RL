@@ -58,12 +58,12 @@ function StatusPill({status,onChange,size}){
   );
 }
 
-function ActivityMiniCard({activity,onOpen,onDragStart}){
+function ActivityMiniCard({activity,onOpen,onDragStart,spanInfo}){
   const meta=U.statusMeta[activity.status];
   return (
     <div className={"mini-card"+(activity.claimedBy?' mini-card-live':'')} draggable onDragStart={e=>onDragStart(e,activity.id)} style={{background:meta.bg,borderLeft:'3px solid '+meta.color}} onClick={()=>onOpen(activity.id)}>
       <span className="mini-card-title">{activity.title}</span>
-      {(activity.time || activity.category) && <span className="mini-card-subrow">{activity.time && <span className="mini-card-time">Due {activity.time}</span>}{activity.category && <span className="category-tag">{activity.category}</span>}</span>}
+      {(activity.time || activity.category || spanInfo) && <span className="mini-card-subrow">{activity.time && <span className="mini-card-time">Due {activity.time}</span>}{spanInfo && <span className="task-range-badge">Day {spanInfo.day}/{spanInfo.total}</span>}{activity.category && <span className="category-tag">{activity.category}</span>}</span>}
       {activity.claimedBy && <span className="mini-card-live-tag"><span className="avatar avatar-xs">{U.initials(activity.claimedBy)}</span>Live · {activity.claimedBy}</span>}
     </div>
   );
@@ -82,16 +82,13 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
   const todayIso=U.todayIso();
   const byDate={};
   const filteredActivities=activities.filter(filterFn);
-  filteredActivities.forEach(a=>{(byDate[a.date]=byDate[a.date]||[]).push(a);});
-  const multiDayTasksByDate={};
-  filteredActivities.forEach(a=>a.tasks.forEach(t=>{
-    const start=t.startDate||t.deadline;
-    if(start===t.deadline) return;
-    for(let d=new Date(start+'T00:00:00');U.iso(d)<=t.deadline;d.setDate(d.getDate()+1)){
+  filteredActivities.forEach(a=>{
+    const end=a.endDate||a.date;
+    for(let d=new Date(a.date+'T00:00:00');U.iso(d)<=end;d.setDate(d.getDate()+1)){
       const dIso=U.iso(d);
-      (multiDayTasksByDate[dIso]=multiDayTasksByDate[dIso]||[]).push({...t,activityId:a.id,activityTitle:a.title,activityStatus:a.status});
+      (byDate[dIso]=byDate[dIso]||[]).push(a);
     }
-  }));
+  });
   const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
   return (
     <div className="calendar">
@@ -101,7 +98,6 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
           if(d===null) return <div key={i} className="day-cell day-cell-empty"></div>;
           const dateIso=U.iso(new Date(year,month,d));
           const dayActivities=byDate[dateIso]||[];
-          const dayTasks=multiDayTasksByDate[dateIso]||[];
           const isToday=dateIso===todayIso;
           const isExpanded=expanded[dateIso];
           const visible=isExpanded?dayActivities:dayActivities.slice(0,3);
@@ -115,14 +111,13 @@ function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewA
                 <button className="day-add" title="New activity" onClick={()=>onNewActivity(dateIso)}>+</button>
               </div>
               <div className="day-cards">
-                {visible.map(a=><ActivityMiniCard key={a.id} activity={a} onOpen={onOpenActivity} onDragStart={(e,id)=>e.dataTransfer.setData('text/plain',id)} />)}
+                {visible.map(a=>{
+                  const end=a.endDate||a.date;
+                  const spans=end>a.date;
+                  const spanInfo=spans?{day:Math.round((new Date(dateIso+'T00:00:00')-new Date(a.date+'T00:00:00'))/86400000)+1,total:Math.round((new Date(end+'T00:00:00')-new Date(a.date+'T00:00:00'))/86400000)+1}:null;
+                  return <ActivityMiniCard key={a.id} activity={a} spanInfo={spanInfo} onOpen={onOpenActivity} onDragStart={(e,id)=>e.dataTransfer.setData('text/plain',id)} />;
+                })}
                 {overflow>0 && <button className="day-more" onClick={()=>setExpanded(x=>({...x,[dateIso]:true}))}>+{overflow} more</button>}
-                {dayTasks.map(t=>(
-                  <button key={t.id+dateIso} className={"task-chip"+(t.done?' task-chip-done':'')} title={t.title+' \u2014 '+(t.assignee||'Unassigned')} onClick={()=>onOpenActivity(t.activityId)}>
-                    <span className="task-chip-dot" style={{background:U.statusMeta[t.activityStatus].color}}></span>
-                    <span className="task-chip-title">{t.title}</span>
-                  </button>
-                ))}
               </div>
             </div>
           );
@@ -186,26 +181,22 @@ function ParticipantChips({participants,team,onAdd,onRemove,onAddTeammate}){
   );
 }
 
-function TaskRow({task,onToggle,onRemove,onEditDates}){
+function TaskRow({task,onToggle,onRemove,onEditDeadline}){
   const overdue=U.isTaskOverdue(task);
-  const spansDays=task.startDate && task.startDate!==task.deadline;
   const [editing,setEditing]=useState(false);
-  const [start,setStart]=useState(task.startDate||task.deadline);
-  const [end,setEnd]=useState(task.deadline);
+  const [deadline,setDeadline]=useState(task.deadline);
   return (
     <div className={"task-row"+(overdue?' task-row-overdue':'')}>
       <input type="checkbox" checked={task.done} onChange={()=>onToggle(task.id)} />
       <div className="task-info">
-        <span className={"task-title"+(task.done?' task-done':'')}>{task.title}{spansDays && <span className="task-range-badge">Multi-day</span>}</span>
+        <span className={"task-title"+(task.done?' task-done':'')}>{task.title}</span>
         {editing ? (
           <div className="task-date-range">
-            <input className="input input-sm" type="date" value={start} onChange={e=>setStart(e.target.value)} />
-            <span className="task-date-arrow">{'\u2192'}</span>
-            <input className="input input-sm" type="date" value={end} onChange={e=>setEnd(e.target.value)} />
-            <button className="btn btn-secondary btn-sm" onClick={()=>{const s=start,e2=end<s?s:end; onEditDates(task.id,s,e2); setEditing(false);}}>Save</button>
+            <input className="input input-sm" type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" onClick={()=>{onEditDeadline(task.id,deadline); setEditing(false);}}>Save</button>
           </div>
         ) : (
-          <span className="task-meta">{task.assignee||'Unassigned'} · <span className={overdue?'task-overdue':''}>{spansDays?U.fmtDate(task.startDate)+' \u2192 '+U.fmtDate(task.deadline):U.fmtDate(task.deadline)}{task.deadlineTime?' · '+task.deadlineTime:''}{overdue?' · Overdue':''}</span>{onEditDates && <button className="task-edit-dates" onClick={()=>setEditing(true)}>edit dates</button>}</span>
+          <span className="task-meta">{task.assignee||'Unassigned'} · <span className={overdue?'task-overdue':''}>{U.fmtDate(task.deadline)}{task.deadlineTime?' · '+task.deadlineTime:''}{overdue?' · Overdue':''}</span>{onEditDeadline && <button className="task-edit-dates" onClick={()=>setEditing(true)}>edit date</button>}</span>
         )}
       </div>
       <button className="task-remove" onClick={()=>onRemove(task.id)}>×</button>
@@ -216,19 +207,14 @@ function TaskRow({task,onToggle,onRemove,onEditDates}){
 function NewTaskForm({team,onAdd}){
   const [title,setTitle]=useState('');
   const [assignee,setAssignee]=useState(team[0]||'');
-  const [startDate,setStartDate]=useState(U.todayIso());
   const [deadline,setDeadline]=useState(U.todayIso());
   return (
-    <form className="new-task-form" onSubmit={e=>{e.preventDefault(); if(!title.trim())return; const end=deadline<startDate?startDate:deadline; onAdd({title:title.trim(),assignee,startDate,deadline:end}); setTitle('');}}>
+    <form className="new-task-form" onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onAdd({title:title.trim(),assignee,deadline}); setTitle('');}}>
       <input className="input input-sm" placeholder="New task" value={title} onChange={e=>setTitle(e.target.value)} />
       <select className="input input-sm" value={assignee} onChange={e=>setAssignee(e.target.value)}>
         {team.map(t=><option key={t} value={t}>{t}</option>)}
       </select>
-      <div className="task-date-range">
-        <input className="input input-sm" type="date" title="Start date" value={startDate} onChange={e=>setStartDate(e.target.value)} />
-        <span className="task-date-arrow">→</span>
-        <input className="input input-sm" type="date" title="Deadline" value={deadline} onChange={e=>setDeadline(e.target.value)} />
-      </div>
+      <input className="input input-sm" type="date" title="Deadline" value={deadline} onChange={e=>setDeadline(e.target.value)} />
       <button className="btn btn-secondary btn-sm" type="submit">Add task</button>
     </form>
   );
@@ -250,8 +236,10 @@ function CategoryPicker({category,onChange}){
   );
 }
 
-function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onEditTaskDates,onDelete,onClaim,onUnclaim}){
+function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onEditTaskDeadline,onDelete,onClaim,onUnclaim,onEditActivity}){
+  const [editing,setEditing]=useState(false);
   if(!activity) return null;
+  const spans=(activity.endDate||activity.date)>activity.date;
   return (
     <div className="drawer-overlay" onClick={onClose}>
       <div className="drawer" onClick={e=>e.stopPropagation()}>
@@ -259,10 +247,11 @@ function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChan
         <div className="drawer-tags">
           <StatusPill status={activity.status} onChange={s=>onChangeStatus(activity.id,s)} size="lg" />
           <CategoryPicker category={activity.category} onChange={c=>onChangeCategory(activity.id,c)} />
+          <button className="btn btn-secondary btn-sm" onClick={()=>setEditing(true)} style={{marginLeft:'auto'}}>Edit</button>
         </div>
         {activity.recurring && <span className="chip recurring-chip">↻ Recurring · {activity.recurringLabel}</span>}
         <h2 className="drawer-title">{activity.title}</h2>
-        <div className="drawer-date">{U.fmtDateLong(activity.date)}{activity.time?' · Due '+activity.time:''}</div>
+        <div className="drawer-date">{spans?U.fmtDateLong(activity.date)+' \u2192 '+U.fmtDateLong(activity.endDate):U.fmtDateLong(activity.date)}{activity.time?' · Due '+activity.time:''}</div>
         {activity.claimedBy ? (
           <div className="live-badge">
             <span className="avatar avatar-sm">{U.initials(activity.claimedBy)}</span>
@@ -283,10 +272,11 @@ function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChan
           <div className="drawer-section-label">Tasks</div>
           <div className="task-list">
             {activity.tasks.length===0 && <div className="empty-hint">No tasks yet.</div>}
-            {activity.tasks.map(t=><TaskRow key={t.id} task={t} onToggle={id=>onToggleTask(activity.id,id)} onRemove={id=>onRemoveTask(activity.id,id)} onEditDates={(id,s,e)=>onEditTaskDates(activity.id,id,s,e)} />)}
+            {activity.tasks.map(t=><TaskRow key={t.id} task={t} onToggle={id=>onToggleTask(activity.id,id)} onRemove={id=>onRemoveTask(activity.id,id)} onEditDeadline={(id,d)=>onEditTaskDeadline(activity.id,id,d)} />)}
           </div>
           <NewTaskForm team={team} onAdd={t=>onAddTask(activity.id,t)} />
         </div>
+        {editing && <EditActivityModal activity={activity} team={team} onClose={()=>setEditing(false)} onSave={data=>{onEditActivity(activity.id,data);setEditing(false);}} />}
         {activity.history && activity.history.length>0 && (
           <div className="drawer-section">
             <div className="drawer-section-label">History</div>
@@ -309,7 +299,8 @@ function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChan
 function NewActivityModal({date,team,onClose,onCreate,onAddTeammate}){
   const [title,setTitle]=useState('');
   const [description,setDescription]=useState('');
-  const [d,setD]=useState(date);
+  const [startDate,setStartDate]=useState(date);
+  const [endDate,setEndDate]=useState(date);
   const [status,setStatus]=useState('planned');
   const [category,setCategory]=useState('');
   const [participants,setParticipants]=useState([]);
@@ -320,13 +311,21 @@ function NewActivityModal({date,team,onClose,onCreate,onAddTeammate}){
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <button className="drawer-close" onClick={onClose}>×</button>
         <h2 className="drawer-title">New activity</h2>
-        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onCreate({title:title.trim(),description,date:d,status,category,participants});}}>
+        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onCreate({title:title.trim(),description,date:startDate,endDate:endDate<startDate?startDate:endDate,status,category,participants});}}>
           <label className="field-label">Title</label>
           <input className="input" value={title} onChange={e=>setTitle(e.target.value)} autoFocus />
           <label className="field-label">Description</label>
           <textarea className="input" rows="3" value={description} onChange={e=>setDescription(e.target.value)}></textarea>
-          <label className="field-label">Date</label>
-          <input className="input" type="date" value={d} onChange={e=>setD(e.target.value)} />
+          <div className="task-date-range">
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">Start date</label>
+              <input className="input" type="date" value={startDate} onChange={e=>{setStartDate(e.target.value); if(endDate<e.target.value) setEndDate(e.target.value);}} />
+            </div>
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">End date</label>
+              <input className="input" type="date" min={startDate} value={endDate} onChange={e=>setEndDate(e.target.value)} />
+            </div>
+          </div>
           <label className="field-label">Category</label>
           <select className="input" value={category} onChange={e=>setCategory(e.target.value)}>
             <option value="">No category</option>
@@ -349,6 +348,64 @@ function NewActivityModal({date,team,onClose,onCreate,onAddTeammate}){
             <button type="button" className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){onAddTeammate(newName.trim());toggle(newName.trim());setNewName('');}}}>Add</button>
           </div>
           <button className="btn btn-primary btn-block" type="submit" style={{marginTop:'16px'}}>Create activity</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EditActivityModal({activity,team,onClose,onSave}){
+  const [title,setTitle]=useState(activity.title);
+  const [description,setDescription]=useState(activity.description||'');
+  const [startDate,setStartDate]=useState(activity.date);
+  const [endDate,setEndDate]=useState(activity.endDate||activity.date);
+  const [status,setStatus]=useState(activity.status);
+  const [category,setCategory]=useState(activity.category||'');
+  const [participants,setParticipants]=useState(activity.participants);
+  const [newName,setNewName]=useState('');
+  const toggle=p=>setParticipants(ps=>ps.includes(p)?ps.filter(x=>x!==p):[...ps,p]);
+  return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <button className="drawer-close" onClick={onClose}>×</button>
+        <h2 className="drawer-title">Edit activity</h2>
+        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onSave({title:title.trim(),description,date:startDate,endDate:endDate<startDate?startDate:endDate,status,category,participants});}}>
+          <label className="field-label">Title</label>
+          <input className="input" value={title} onChange={e=>setTitle(e.target.value)} autoFocus />
+          <label className="field-label">Description</label>
+          <textarea className="input" rows="3" value={description} onChange={e=>setDescription(e.target.value)}></textarea>
+          <div className="task-date-range">
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">Start date</label>
+              <input className="input" type="date" value={startDate} onChange={e=>{setStartDate(e.target.value); if(endDate<e.target.value) setEndDate(e.target.value);}} />
+            </div>
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">End date</label>
+              <input className="input" type="date" min={startDate} value={endDate} onChange={e=>setEndDate(e.target.value)} />
+            </div>
+          </div>
+          <label className="field-label">Category</label>
+          <select className="input" value={category} onChange={e=>setCategory(e.target.value)}>
+            <option value="">No category</option>
+            {U.categories.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="field-label">Status</label>
+          <div className="chip-row">
+            {Object.keys(U.statusMeta).map(s=>(
+              <button type="button" key={s} className={"chip chip-clickable"+(status===s?' chip-active':'')} style={status===s?{background:U.statusMeta[s].bg,color:U.statusMeta[s].color}:{}} onClick={()=>setStatus(s)}>{U.statusMeta[s].label}</button>
+            ))}
+          </div>
+          <label className="field-label">Participants</label>
+          <div className="chip-row">
+            {team.map(t=>(
+              <button type="button" key={t} className={"chip chip-clickable"+(participants.includes(t)?' chip-active':'')} style={participants.includes(t)?{background:'var(--planned-bg)',color:'var(--planned)'}:{}} onClick={()=>toggle(t)}>{t}</button>
+            ))}
+          </div>
+          <div className="picker-new" style={{marginTop:'8px'}}>
+            <input className="input input-sm" placeholder="New teammate name" value={newName} onChange={e=>setNewName(e.target.value)} />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){toggle(newName.trim());setNewName('');}}}>Add</button>
+          </div>
+          <button className="btn btn-primary btn-block" type="submit" style={{marginTop:'16px'}}>Save changes</button>
         </form>
       </div>
     </div>
@@ -545,6 +602,76 @@ function DonutChart({segments,size,centerLabel,centerSub}){
   );
 }
 
+function ActivitiesTable({activities,onOpenActivity}){
+  const [copied,setCopied]=useState(false);
+  const byCategory={};
+  activities.forEach(a=>{const c=a.category||'Uncategorized'; (byCategory[c]=byCategory[c]||[]).push(a);});
+  const categories=Object.keys(byCategory).sort((a,b)=>a.localeCompare(b));
+  function fallbackCopy(html,text){
+    const holder=document.createElement('div');
+    holder.contentEditable='true';
+    holder.style.position='fixed'; holder.style.opacity='0'; holder.style.pointerEvents='none';
+    holder.innerHTML=html;
+    document.body.appendChild(holder);
+    const range=document.createRange(); range.selectNodeContents(holder);
+    const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    let ok=false;
+    try{ok=document.execCommand('copy');}catch(e){}
+    sel.removeAllRanges();
+    document.body.removeChild(holder);
+    if(!ok){
+      const ta=document.createElement('textarea');
+      ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try{document.execCommand('copy');}catch(e){}
+      document.body.removeChild(ta);
+    }
+  }
+  function copyTable(){
+    const header=['Category','Activity','Status','Participants'];
+    const rows=[];
+    categories.forEach(cat=>{byCategory[cat].forEach(a=>{rows.push([cat,a.title,U.statusMeta[a.status].label,a.participants.join(', ')]);});});
+    const text=[header,...rows].map(r=>r.join('\t')).join('\n');
+    const escape=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const html='<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-family:sans-serif;font-size:13px">'
+      +'<thead><tr>'+header.map(h=>'<th style="background:#f2f2f5;text-align:left;padding:8px 12px">'+escape(h)+'</th>').join('')+'</tr></thead>'
+      +'<tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td style="padding:8px 12px">'+escape(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+    const done=()=>{setCopied(true);setTimeout(()=>setCopied(false),1800);};
+    if(navigator.clipboard && window.ClipboardItem){
+      const item=new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})});
+      navigator.clipboard.write([item]).then(done).catch(()=>{fallbackCopy(html,text);done();});
+    } else {
+      fallbackCopy(html,text);done();
+    }
+  }
+  return (
+    <section className="personal-section">
+      <div className="weekly-col-head" style={{justifyContent:'space-between',display:'flex',alignItems:'center'}}>
+        <h3 style={{margin:0}}>Activities this week</h3>
+        <button className="btn btn-secondary btn-sm" onClick={copyTable}>{copied?'Copied!':'Copy table'}</button>
+      </div>
+      {activities.length===0 ? <div className="empty-hint">No activities scheduled this week.</div> : (
+        <table className="summary-table">
+          <thead><tr><th>Category</th><th>Activity</th><th>Status</th><th>Participants</th></tr></thead>
+          <tbody>
+            {categories.map(cat=>byCategory[cat].map((a,i)=>{
+              const meta=U.statusMeta[a.status];
+              return (
+                <tr key={a.id} className="summary-row" onClick={()=>onOpenActivity(a.id)}>
+                  {i===0 && <td className="summary-cat" rowSpan={byCategory[cat].length}>{cat}</td>}
+                  <td>{a.title}{a.recurring && <span className="recurring-inline-tag" title="Recurring">{'\u21bb'}</span>}</td>
+                  <td><span className="status-dot-inline" style={{color:meta.color}}>{meta.label}</span></td>
+                  <td>{a.participants.join(', ')}</td>
+                </tr>
+              );
+            }))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
 function WeeklySummary({activities,team,weekDate,setWeekDate,onOpenActivity,onToggleTask}){
   const start=U.startOfWeek(weekDate), end=U.endOfWeek(weekDate);
   const startIso=U.iso(start), endIso=U.iso(end);
@@ -630,23 +757,7 @@ function WeeklySummary({activities,team,weekDate,setWeekDate,onOpenActivity,onTo
           </div>
         </div>
       </div>
-      <section className="personal-section">
-        <h3>Activities this week</h3>
-        {weekActivities.length===0 && <div className="empty-hint">No activities scheduled this week.</div>}
-        <div className="weekly-columns">
-          {cols.map(([key,label])=>(
-            <div key={key} className="weekly-col">
-              <div className="weekly-col-head"><span className="status-dot" style={{background:U.statusMeta[key].color}}></span>{label} <span className="count-badge">{byStatus[key].length}</span></div>
-              {byStatus[key].map(a=>(
-                <button key={a.id} className={"activity-tile"+(a.claimedBy?' activity-tile-live':'')} style={{borderTop:'3px solid '+U.statusMeta[key].color}} onClick={()=>onOpenActivity(a.id)}>
-                  <span className="activity-tile-title">{a.title}</span>
-                  <span className="activity-tile-date">{U.fmtDate(a.date)}</span>
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
-      </section>
+      <ActivitiesTable activities={uniqueWeekActivities} onOpenActivity={onOpenActivity} />
       <div className="personal-columns">
         <section className="personal-section">
           <h3>Overdue <span className="count-badge count-danger">{weekTasks.filter(t=>U.isTaskOverdue(t)).length}</span></h3>
@@ -668,4 +779,4 @@ function WeeklySummary({activities,team,weekDate,setWeekDate,onOpenActivity,onTo
   );
 }
 
-Object.assign(window,{LoginScreen,Toasts,StatusPill,CalendarGrid,ActivityDrawer,NewActivityModal,Sidebar,PersonalView,WeeklySummary,LiveActivityBar});
+Object.assign(window,{LoginScreen,Toasts,StatusPill,CalendarGrid,ActivityDrawer,NewActivityModal,EditActivityModal,Sidebar,PersonalView,WeeklySummary,LiveActivityBar});
