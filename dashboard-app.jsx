@@ -8,6 +8,17 @@ function loadStored(){
 function saveStored(data){
   try{localStorage.setItem(STORAGE_KEY,JSON.stringify(data));}catch(e){}
 }
+function playChatDing(){
+  try{
+    const ctx=new (window.AudioContext||window.webkitAudioContext)();
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='sine'; o.frequency.value=880;
+    g.gain.setValueAtTime(0.15,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.35);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(); o.stop(ctx.currentTime+0.35);
+  }catch(e){}
+}
 
 function App(){
   const [seed]=useState(()=>{const stored=loadStored(); return stored||window.DashData.buildSeedData();});
@@ -25,9 +36,38 @@ function App(){
   const [filters,setFilters]=useState({search:'',statuses:[],participant:'',category:''});
   const [userMenuOpen,setUserMenuOpen]=useState(false);
   const [onlineUsers,setOnlineUsers]=useState([]);
-  const [chat,setChat]=useState(()=>seed.chatSessions||{});
+  const [chat,setChat]=useState({});
+  const chatSynced=useRef(false);
+  const prevChatRef=useRef({});
 
-  useEffect(()=>{saveStored({team,activities,currentUser,chatSessions:chat});},[team,activities,currentUser,chat]);
+  useEffect(()=>{saveStored({team,activities,currentUser});},[team,activities,currentUser]);
+
+  useEffect(()=>{
+    const unsub=window.DashDB.subscribeChats(remote=>{
+      setChat(remote||{});
+      chatSynced.current=true;
+    });
+    return unsub;
+  },[]);
+
+  useEffect(()=>{
+    if(!currentUser || !chatSynced.current) return;
+    const isAdmin=currentUser==='Hugo.M';
+    const keys=isAdmin?Object.keys(chat):[currentUser];
+    keys.forEach(key=>{
+      const prevMsgs=(prevChatRef.current[key]&&prevChatRef.current[key].messages)||[];
+      const nowMsgs=(chat[key]&&chat[key].messages)||[];
+      if(nowMsgs.length>prevMsgs.length){
+        const last=nowMsgs[nowMsgs.length-1];
+        if(last && last.from!==currentUser){
+          const label=isAdmin?key:'Hugo.M';
+          toast('New message from '+label+(last.text?': '+last.text.slice(0,60):' (GIF)'));
+          playChatDing();
+        }
+      }
+    });
+    prevChatRef.current=chat;
+  },[chat,currentUser]);
 
   useEffect(()=>{
     const unsub=window.DashDB.subscribe(remote=>{
@@ -162,18 +202,23 @@ function App(){
     if(a) toast('"'+a.title+'" deleted');
   }
   function startChat(withUser){
-    setChat(c=>({...c,[withUser]:{active:true,messages:[]}}));
+    window.DashDB.startChatSession(withUser);
   }
   function endChat(withUser){
-    setChat(c=>({...c,[withUser]:{active:false,messages:[]}}));
+    window.DashDB.endChatSession(withUser);
+  }
+  function deleteChat(withUser){
+    window.DashDB.deleteChatSession(withUser);
+    toast('Conversation with '+withUser+' deleted');
+  }
+  function markChatRead(withUser){
+    window.DashDB.markChatRead(withUser,currentUser);
   }
   function sendChatMessage(withUser,msg){
+    const s=chat[withUser];
+    if(!s || !s.active) return;
     const message={id:U.uid(),from:currentUser,text:msg.text,gif:msg.gif||null,at:new Date().toISOString()};
-    setChat(c=>{
-      const s=c[withUser];
-      if(!s || !s.active) return c;
-      return {...c,[withUser]:{...s,messages:[...s.messages,message]}};
-    });
+    window.DashDB.sendChatMessage(withUser,message);
   }
 
   function claimActivity(id){
@@ -238,7 +283,7 @@ function App(){
             : <TutorialLibrary />}
         </main>
       </div>
-      <ChatPanel team={team} currentUser={currentUser} chat={chat} onSend={sendChatMessage} onStart={startChat} onEnd={endChat} />
+      <ChatPanel team={team} currentUser={currentUser} chat={chat} onSend={sendChatMessage} onStart={startChat} onEnd={endChat} onDelete={deleteChat} onMarkRead={markChatRead} />
       <ActivityDrawer activity={selected} team={team} currentUser={currentUser} onClose={()=>setSelectedId(null)}
         onChangeStatus={changeStatus} onChangeCategory={changeCategory} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
         onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onEditTaskDeadline={editTaskDeadline} onDelete={deleteActivity}
