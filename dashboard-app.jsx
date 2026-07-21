@@ -25,8 +25,9 @@ function App(){
   const [filters,setFilters]=useState({search:'',statuses:[],participant:'',category:''});
   const [userMenuOpen,setUserMenuOpen]=useState(false);
   const [onlineUsers,setOnlineUsers]=useState([]);
+  const [chat,setChat]=useState(()=>seed.chatSessions||{});
 
-  useEffect(()=>{saveStored({team,activities,currentUser});},[team,activities,currentUser]);
+  useEffect(()=>{saveStored({team,activities,currentUser,chatSessions:chat});},[team,activities,currentUser,chat]);
 
   useEffect(()=>{
     const unsub=window.DashDB.subscribe(remote=>{
@@ -160,6 +161,21 @@ function App(){
     setSelectedId(null);
     if(a) toast('"'+a.title+'" deleted');
   }
+  function startChat(withUser){
+    setChat(c=>({...c,[withUser]:{active:true,messages:[]}}));
+  }
+  function endChat(withUser){
+    setChat(c=>({...c,[withUser]:{active:false,messages:[]}}));
+  }
+  function sendChatMessage(withUser,msg){
+    const message={id:U.uid(),from:currentUser,text:msg.text,gif:msg.gif||null,at:new Date().toISOString()};
+    setChat(c=>{
+      const s=c[withUser];
+      if(!s || !s.active) return c;
+      return {...c,[withUser]:{...s,messages:[...s.messages,message]}};
+    });
+  }
+
   function claimActivity(id){
     setActivities(as=>as.map(a=>a.id===id?{...a,claimedBy:currentUser,claimedAt:new Date().toISOString(),participants:a.participants.includes(currentUser)?a.participants:[...a.participants,currentUser]}:a));
     toast('You claimed this activity');
@@ -222,6 +238,7 @@ function App(){
             : <TutorialLibrary />}
         </main>
       </div>
+      <ChatPanel team={team} currentUser={currentUser} chat={chat} onSend={sendChatMessage} onStart={startChat} onEnd={endChat} />
       <ActivityDrawer activity={selected} team={team} currentUser={currentUser} onClose={()=>setSelectedId(null)}
         onChangeStatus={changeStatus} onChangeCategory={changeCategory} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
         onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onEditTaskDeadline={editTaskDeadline} onDelete={deleteActivity}
