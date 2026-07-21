@@ -80,9 +80,21 @@ function App(){
   }
 
   function moveActivity(id,date){
-    setActivities(as=>as.map(a=>a.id===id?{...a,date}:a));
+    setActivities(as=>as.map(a=>{
+      if(a.id!==id) return a;
+      const oldStart=new Date(a.date+'T00:00:00');
+      const oldEnd=new Date((a.endDate||a.date)+'T00:00:00');
+      const span=Math.round((oldEnd-oldStart)/86400000);
+      const newStart=new Date(date+'T00:00:00');
+      const newEnd=new Date(newStart); newEnd.setDate(newEnd.getDate()+span);
+      return {...a,date,endDate:U.iso(newEnd)};
+    }));
     const a=activities.find(x=>x.id===id);
     if(a) toast('Moved "'+a.title+'" to '+U.fmtDate(date));
+  }
+  function editActivity(id,data){
+    setActivities(as=>as.map(a=>a.id===id?{...a,...data,endDate:data.endDate||data.date||a.endDate}:a));
+    toast('"'+data.title+'" updated');
   }
 
   function addParticipant(activityId,name){
@@ -127,8 +139,8 @@ function App(){
     setActivities(as=>as.map(a=>a.id===activityId?{...a,tasks:[...a.tasks,{...task,id:U.uid(),done:false}]}:a));
     toast('Task added');
   }
-  function editTaskDates(activityId,taskId,startDate,deadline){
-    setActivities(as=>as.map(a=>a.id!==activityId?a:{...a,tasks:a.tasks.map(t=>t.id===taskId?{...t,startDate,deadline}:t)}));
+  function editTaskDeadline(activityId,taskId,deadline){
+    setActivities(as=>as.map(a=>a.id!==activityId?a:{...a,tasks:a.tasks.map(t=>t.id===taskId?{...t,deadline}:t)}));
   }
   function toggleTask(activityId,taskId){
     setActivities(as=>as.map(a=>a.id!==activityId?a:{...a,tasks:a.tasks.map(t=>t.id===taskId?{...t,done:!t.done}:t)}));
@@ -212,8 +224,8 @@ function App(){
       </div>
       <ActivityDrawer activity={selected} team={team} currentUser={currentUser} onClose={()=>setSelectedId(null)}
         onChangeStatus={changeStatus} onChangeCategory={changeCategory} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
-        onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onEditTaskDates={editTaskDates} onDelete={deleteActivity}
-        onClaim={claimActivity} onUnclaim={unclaimActivity} />
+        onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onEditTaskDeadline={editTaskDeadline} onDelete={deleteActivity}
+        onClaim={claimActivity} onUnclaim={unclaimActivity} onEditActivity={editActivity} />
       {newActivityDate && <NewActivityModal date={newActivityDate} team={team} onClose={()=>setNewActivityDate(null)} onCreate={createActivity} onAddTeammate={ensureTeammate} />}
       <Toasts toasts={toasts} onDismiss={id=>setToasts(ts=>ts.filter(t=>t.id!==id))} />
     </div>
