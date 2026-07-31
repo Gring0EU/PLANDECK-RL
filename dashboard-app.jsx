@@ -30,6 +30,9 @@ function App(){
   const [view,setView]=useState('calendar');
   const [monthDate,setMonthDate]=useState(new Date());
   const [weekDate,setWeekDate]=useState(new Date());
+  const [personalPeriod,setPersonalPeriod]=useState('week');
+  const [personalWeekDate,setPersonalWeekDate]=useState(new Date());
+  const [personalMonthDate,setPersonalMonthDate]=useState(new Date());
   const [selectedId,setSelectedId]=useState(null);
   const [newActivityDate,setNewActivityDate]=useState(null);
   const [toasts,setToasts]=useState([]);
@@ -100,9 +103,26 @@ function App(){
     setTimeout(()=>setToasts(ts=>ts.filter(t=>t.id!==id)),3500);
   }
 
+  useEffect(()=>{
+    if('Notification' in window && Notification.permission==='default') Notification.requestPermission();
+    const iv=setInterval(()=>{
+      if(!('Notification' in window) || Notification.permission!=='granted') return;
+      const now=new Date();
+      setActivities(as=>as.map(a=>{
+        if(!a.notifyDate || !a.notifyTime || a.notified) return a;
+        const when=new Date(a.notifyDate+'T'+a.notifyTime);
+        if(when<=now){
+          new Notification(a.title,{body:'Reminder: '+U.fmtDateLong(a.date)+(a.time?' · Due '+a.time:''),icon:'assets/favicon-transparent.png'});
+          return {...a,notified:true};
+        }
+        return a;
+      }));
+    },30000);
+    return ()=>clearInterval(iv);
+  },[]);
+
   function ensureTeammate(name){
     setTeam(t=>t.includes(name)?t:[...t,name]);
-    setActivities(as=>as.map(a=>a.recurring && !a.participants.includes(name)?{...a,participants:[...a.participants,name]}:a));
   }
 
   function handleLogin(name){
@@ -277,7 +297,7 @@ function App(){
           {view==='calendar'
             ? <CalendarGrid monthDate={monthDate} activities={activities} onOpenActivity={setSelectedId} onMoveActivity={moveActivity} onNewActivity={setNewActivityDate} filterFn={filterFn} />
             : view==='personal'
-            ? <PersonalView currentUser={currentUser} activities={activities} onOpenActivity={setSelectedId} onToggleTask={toggleTask} />
+            ? <PersonalDashboard currentUser={currentUser} activities={activities} onOpenActivity={setSelectedId} period={personalPeriod} setPeriod={setPersonalPeriod} weekDate={personalWeekDate} setWeekDate={setPersonalWeekDate} monthDate={personalMonthDate} setMonthDate={setPersonalMonthDate} />
             : view==='weekly'
             ? <WeeklySummary activities={activities} team={team} weekDate={weekDate} setWeekDate={setWeekDate} onOpenActivity={setSelectedId} onToggleTask={toggleTask} />
             : <TutorialLibrary />}
