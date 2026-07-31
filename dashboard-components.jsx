@@ -6,7 +6,7 @@ function LoginScreen({onLogin,team}){
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="login-mark">Plandeck</div>
+        <div className="login-mark"><img src="assets/favicon-transparent.png" alt="" className="login-mark-logo" />Plandeck</div>
         <h1>Welcome back</h1>
         <p className="login-sub">Enter your name to jump into the shared workspace. No password needed.</p>
         <form onSubmit={e=>{e.preventDefault(); if(name.trim()) onLogin(name.trim());}}>
@@ -373,13 +373,15 @@ function EditActivityModal({activity,team,onClose,onSave}){
   const [category,setCategory]=useState(activity.category||'');
   const [participants,setParticipants]=useState(activity.participants);
   const [newName,setNewName]=useState('');
+  const [notifyDate,setNotifyDate]=useState(activity.notifyDate||'');
+  const [notifyTime,setNotifyTime]=useState(activity.notifyTime||'');
   const toggle=p=>setParticipants(ps=>ps.includes(p)?ps.filter(x=>x!==p):[...ps,p]);
   return (
     <div className="drawer-overlay" onClick={onClose}>
       <div className="modal" onClick={e=>e.stopPropagation()}>
         <button className="drawer-close" onClick={onClose}>×</button>
         <h2 className="drawer-title">Edit activity</h2>
-        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onSave({title:title.trim(),description,date:startDate,endDate:endDate<startDate?startDate:endDate,status,category,participants});}}>
+        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onSave({title:title.trim(),description,date:startDate,endDate:endDate<startDate?startDate:endDate,status,category,participants,notifyDate,notifyTime,notified:false});}}>
           <label className="field-label">Title</label>
           <input className="input" value={title} onChange={e=>setTitle(e.target.value)} autoFocus />
           <label className="field-label">Description</label>
@@ -414,6 +416,15 @@ function EditActivityModal({activity,team,onClose,onSave}){
           <div className="picker-new" style={{marginTop:'8px'}}>
             <input className="input input-sm" placeholder="New teammate name" value={newName} onChange={e=>setNewName(e.target.value)} />
             <button type="button" className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){toggle(newName.trim());setNewName('');}}}>Add</button>
+          </div>
+          <label className="field-label">Notify me (browser popup)</label>
+          <div className="task-date-range">
+            <div style={{flex:'1 1 130px'}}>
+              <input className="input" type="date" value={notifyDate} onChange={e=>setNotifyDate(e.target.value)} />
+            </div>
+            <div style={{flex:'1 1 100px'}}>
+              <input className="input" type="time" value={notifyTime} onChange={e=>setNotifyTime(e.target.value)} />
+            </div>
           </div>
           <button className="btn btn-primary btn-block" type="submit" style={{marginTop:'16px'}}>Save changes</button>
         </form>
@@ -493,6 +504,7 @@ function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd,onDelete,onMarkRe
   return (
     <div className={"chat-dock"+(open?' chat-dock-open':'')}>
       {!open && (
+
         <button className={"chat-toggle"+(totalUnread>0?' chat-toggle-alert':'')} onClick={()=>setOpen(true)}>
           💬 Chat{totalUnread>0 && <span className="chat-badge">{totalUnread>9?'9+':totalUnread}</span>}
         </button>
@@ -604,7 +616,7 @@ function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,
     <aside className="sidebar">
       <nav className="side-nav">
         <button className={"side-nav-item"+(view==='calendar'?' side-nav-active':'')} onClick={()=>setView('calendar')}>Calendar</button>
-        <button className={"side-nav-item"+(view==='personal'?' side-nav-active':'')} onClick={()=>setView('personal')}>My Space</button>
+        <button className={"side-nav-item"+(view==='personal'?' side-nav-active':'')} onClick={()=>setView('personal')}>My Dashboard</button>
         <button className={"side-nav-item"+(view==='weekly'?' side-nav-active':'')} onClick={()=>setView('weekly')}>Weekly Summary</button>
         <button className={"side-nav-item"+(view==='tutorials'?' side-nav-active':'')} onClick={()=>setView('tutorials')}>Tutorial Library</button>
       </nav>
