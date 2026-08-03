@@ -23,6 +23,7 @@ function playChatDing(){
 function App(){
   const [seed]=useState(()=>{const stored=loadStored(); return stored||window.DashData.buildSeedData();});
   const [team,setTeam]=useState(()=>window.DashData.normalizeTeam(seed.team));
+  const [oldTeam,setOldTeam]=useState(()=>seed.oldTeam||[]);
   const [activities,setActivities]=useState(()=>window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(seed.activities),seed.team));
   const [currentUser,setCurrentUser]=useState(seed.currentUser||null);
   const [synced,setSynced]=useState(false);
@@ -43,7 +44,7 @@ function App(){
   const chatSynced=useRef(false);
   const prevChatRef=useRef({});
 
-  useEffect(()=>{saveStored({team,activities,currentUser});},[team,activities,currentUser]);
+  useEffect(()=>{saveStored({team,oldTeam,activities,currentUser});},[team,oldTeam,activities,currentUser]);
 
   useEffect(()=>{
     const unsub=window.DashDB.subscribeChats(remote=>{
@@ -123,6 +124,8 @@ function App(){
 
   function ensureTeammate(name){
     setTeam(t=>t.includes(name)?t:[...t,name]);
+    const todayIso=window.DashUtils.todayIso();
+    setActivities(as=>as.map(a=>a.recurring && a.date>=todayIso && !a.participants.includes(name)?{...a,participants:[...a.participants,name]}:a));
   }
 
   function handleLogin(name){
@@ -176,7 +179,26 @@ function App(){
       return {...a,participants:a.participants.filter(p=>p!==name),tasks,history:[...(a.history||[]),historyEntry]};
     }));
     setTeam(t=>t.filter(x=>x!==name));
+    setOldTeam(o=>o.filter(x=>x!==name));
     toast(name+' removed from the team \u2014 tasks reassigned to Assia.D');
+  }
+  function archiveTeammate(name){
+    if(name==='Assia.D'){ toast('Assia.D cannot be archived'); return; }
+    const todayIso=U.todayIso();
+    setActivities(as=>as.map(a=>{
+      if(a.recurring && a.date>=todayIso && a.participants.includes(name)){
+        return {...a,participants:a.participants.filter(p=>p!==name)};
+      }
+      return a;
+    }));
+    setTeam(t=>t.filter(x=>x!==name));
+    setOldTeam(o=>o.includes(name)?o:[...o,name]);
+    toast(name+' moved to Old members');
+  }
+  function restoreTeammate(name){
+    setOldTeam(o=>o.filter(x=>x!==name));
+    setTeam(t=>t.includes(name)?t:[...t,name]);
+    toast(name+' restored to the team');
   }
   function removeParticipant(activityId,name){
     setActivities(as=>as.map(a=>{
@@ -291,7 +313,7 @@ function App(){
       </header>
       <div className="app-body">
         <Sidebar team={team} currentUser={currentUser} activities={activities} filters={filters} setFilters={setFilters}
-          onOpenActivity={setSelectedId} view={view} setView={setView} onAddTeammate={ensureTeammate} onRemoveTeammate={removeTeammate} onlineUsers={onlineUsers} />
+          onOpenActivity={setSelectedId} view={view} setView={setView} onAddTeammate={ensureTeammate} onRemoveTeammate={removeTeammate} onArchiveTeammate={archiveTeammate} onRestoreTeammate={restoreTeammate} oldTeam={oldTeam} onlineUsers={onlineUsers} />
         <main className="app-main">
           <LiveActivityBar activities={activities} onOpenActivity={setSelectedId} />
           {view==='calendar'
