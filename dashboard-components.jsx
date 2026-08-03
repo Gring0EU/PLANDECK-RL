@@ -578,22 +578,25 @@ function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd,onDelete,onMarkRe
   );
 }
 
-function ConfirmRemoveModal({name,onConfirm,onCancel}){
+function ConfirmRemoveModal({name,onArchive,onDelete,onCancel}){
   const [text,setText]=useState('');
   return (
     <div className="drawer-overlay" onClick={onCancel}>
       <div className="modal modal-sm" onClick={e=>e.stopPropagation()}>
         <button className="drawer-close" onClick={onCancel}>×</button>
         <h2 className="drawer-title">Remove {name}?</h2>
-        <p className="drawer-desc">This removes {name} from the team and reassigns all their tasks to Assia.D. This can't be undone. Type <strong>remove</strong> to confirm.</p>
-        <input className="input" autoFocus value={text} onChange={e=>setText(e.target.value)} placeholder="Type remove" />
-        <button className="btn btn-danger btn-block" disabled={text.trim().toLowerCase()!=='remove'} onClick={onConfirm} style={{marginTop:'12px'}}>Remove {name}</button>
+        <p className="drawer-desc">Move {name} to <strong>Old members</strong> to keep their history but stop new assignments, or delete permanently — this reassigns all their tasks to Assia.D and can't be undone.</p>
+        <button className="btn btn-secondary btn-block" onClick={onArchive}>Move to Old members</button>
+        <div style={{marginTop:'16px',borderTop:'1px solid var(--border)',paddingTop:'16px'}}>
+          <input className="input" autoFocus value={text} onChange={e=>setText(e.target.value)} placeholder="Type remove to delete permanently" />
+          <button className="btn btn-danger btn-block" disabled={text.trim().toLowerCase()!=='remove'} onClick={onDelete} style={{marginTop:'12px'}}>Delete {name} permanently</button>
+        </div>
       </div>
     </div>
   );
 }
 
-function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,view,setView,onAddTeammate,onRemoveTeammate,onlineUsers}){
+function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,view,setView,onAddTeammate,onRemoveTeammate,onArchiveTeammate,onRestoreTeammate,oldTeam,onlineUsers}){
   const myTasksRaw=[];
   activities.forEach(a=>a.tasks.forEach(t=>{if((t.assignee===currentUser || (!t.assignee && a.participants.includes(currentUser))) && !t.done) myTasksRaw.push({...t,activityId:a.id,activityTitle:a.title,recurring:a.recurring,date:a.date});}));
   const seenRecurring=new Set();
@@ -676,7 +679,17 @@ function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,
           <button className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){onAddTeammate(newName.trim());setNewName('');}}}>Add</button>
         </div>
       </div>
-      {pendingRemove && <ConfirmRemoveModal name={pendingRemove} onCancel={()=>setPendingRemove(null)} onConfirm={()=>{onRemoveTeammate(pendingRemove);setPendingRemove(null);}} />}
+      {oldTeam && oldTeam.length>0 && (
+        <div className="side-block">
+          <div className="side-title">Old members</div>
+          <div className="chip-row">{oldTeam.map(t=>(
+            <span key={t} className="chip chip-participant" style={{opacity:.6}}>{t}
+              <button className="chip-x" title="Restore to team" onClick={()=>onRestoreTeammate(t)}>{'\u21bb'}</button>
+            </span>
+          ))}</div>
+        </div>
+      )}
+      {pendingRemove && <ConfirmRemoveModal name={pendingRemove} onCancel={()=>setPendingRemove(null)} onArchive={()=>{onArchiveTeammate(pendingRemove);setPendingRemove(null);}} onDelete={()=>{onRemoveTeammate(pendingRemove);setPendingRemove(null);}} />}
     </aside>
   );
 }
