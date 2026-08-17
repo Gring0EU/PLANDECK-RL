@@ -1,211 +1,1004 @@
-function buildSeedData(){
-  const team=['Assia.D','Hugo.M','Killian.B','Benjamin.R'];
-  return {team,activities:syncRecurringActivities([],team)};
+const {useState,useRef}=React;
+const U=window.DashUtils;
+
+function LoginScreen({onLogin,team}){
+  const [name,setName]=useState('');
+  return (
+    <div className="login-screen">
+      <div className="login-card">
+        <div className="login-mark"><img src="assets/favicon-transparent.png" alt="" className="login-mark-logo" />Plandeck</div>
+        <h1>Welcome back</h1>
+        <p className="login-sub">Enter your name to jump into the shared workspace. No password needed.</p>
+        <form onSubmit={e=>{e.preventDefault(); if(name.trim()) onLogin(name.trim());}}>
+          <input autoFocus className="input" placeholder="Your name" value={name} onChange={e=>setName(e.target.value)} />
+          <button className="btn btn-primary btn-block" type="submit" disabled={!name.trim()}>Continue</button>
+        </form>
+        <div className="login-suggest">
+          <span>Team members already here:</span>
+          <div className="chip-row">
+            {team.map(t=><button key={t} className="chip chip-clickable" onClick={()=>setName(t)}>{t}</button>)}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
-const RECURRING_RULES=[
-  {key:'blog',title:'The Blog',time:'18:00',days:[1,2,3,4,5],category:'CIO',description:'Daily blog post \u2014 assign a writer and publish before the cutoff.',deliverables:['Publish post']},
-  {key:'wrapup',title:'Wrap Up',time:'17:00',days:[4,5],category:'CIO',description:'End-of-day editorial wrap up.',deliverables:['Wrap up']},
-  {key:'focus',title:'Focus Article (EN & FR)',time:null,days:[4],category:'CIO',description:'In-depth focus article, published in English and French.',deliverables:['English version','French version']},
-  {key:'charts',title:'The Week in Seven Charts (EN & FR)',time:null,days:[5],category:'CIO',description:'Weekly data recap in seven charts, published in English and French.',deliverables:['English version','French version']}
+function Toasts({toasts,onDismiss}){
+  return (
+    <div className="toast-stack">
+      {toasts.map(t=>(
+        <div key={t.id} className="toast">
+          <span>{t.msg}</span>
+          <button className="toast-close" onClick={()=>onDismiss(t.id)}>×</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatusPill({status,onChange,size}){
+  const [open,setOpen]=useState(false);
+  const meta=U.statusMeta[status];
+  return (
+    <div className="status-pill-wrap">
+      <button className={"status-pill "+(size||'')} style={{color:meta.color,background:meta.bg}} onClick={()=>setOpen(o=>!o)}>
+        <span className="status-dot" style={{background:meta.color}}></span>{meta.label}
+      </button>
+      {open && (
+        <div className="status-menu" onMouseLeave={()=>setOpen(false)}>
+          {Object.keys(U.statusMeta).map(s=>(
+            <button key={s} className="status-menu-item" style={{color:U.statusMeta[s].color}} onClick={()=>{onChange(s);setOpen(false);}}>
+              <span className="status-dot" style={{background:U.statusMeta[s].color}}></span>{U.statusMeta[s].label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityMiniCard({activity,onOpen,onDragStart,spanInfo}){
+  const meta=U.statusMeta[activity.status];
+  return (
+    <div className={"mini-card"+(activity.claimedBy?' mini-card-live':'')} draggable onDragStart={e=>onDragStart(e,activity.id)} style={{background:meta.bg,borderLeft:'3px solid '+meta.color}} onClick={()=>onOpen(activity.id)}>
+      <span className="mini-card-title">{activity.title}</span>
+      {(activity.time || activity.category || spanInfo) && <span className="mini-card-subrow">{activity.time && <span className="mini-card-time">Due {activity.time}</span>}{spanInfo && <span className="task-range-badge">Day {spanInfo.day}/{spanInfo.total}</span>}{activity.category && <span className="category-tag">{activity.category}</span>}</span>}
+      {activity.claimedBy && <span className="mini-card-live-tag"><span className="avatar avatar-xs">{U.initials(activity.claimedBy)}</span>Live · {activity.claimedBy}</span>}
+    </div>
+  );
+}
+
+function CalendarGrid({monthDate,activities,onOpenActivity,onMoveActivity,onNewActivity,filterFn}){
+  const [expanded,setExpanded]=useState({});
+  const year=monthDate.getFullYear(), month=monthDate.getMonth();
+  const firstOfMonth=new Date(year,month,1);
+  const startWeekday=firstOfMonth.getDay();
+  const daysInMonth=new Date(year,month+1,0).getDate();
+  const cells=[];
+  for(let i=0;i<startWeekday;i++) cells.push(null);
+  for(let d=1;d<=daysInMonth;d++) cells.push(d);
+  while(cells.length%7!==0) cells.push(null);
+  const todayIso=U.todayIso();
+  const byDate={};
+  const filteredActivities=activities.filter(filterFn);
+  filteredActivities.forEach(a=>{
+    const end=a.endDate||a.date;
+    for(let d=new Date(a.date+'T00:00:00');U.iso(d)<=end;d.setDate(d.getDate()+1)){
+      if(d.getDay()===0||d.getDay()===6) continue;
+      const dIso=U.iso(d);
+      (byDate[dIso]=byDate[dIso]||[]).push(a);
+    }
+  });
+  const weekdays=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  return (
+    <div className="calendar">
+      <div className="calendar-weekdays">{weekdays.map(w=><div key={w} className="weekday">{w}</div>)}</div>
+      <div className="calendar-grid">
+        {cells.map((d,i)=>{
+          if(d===null) return <div key={i} className="day-cell day-cell-empty"></div>;
+          const dateIso=U.iso(new Date(year,month,d));
+          const dayActivities=byDate[dateIso]||[];
+          const isToday=dateIso===todayIso;
+          const isExpanded=expanded[dateIso];
+          const visible=isExpanded?dayActivities:dayActivities.slice(0,3);
+          const overflow=dayActivities.length-visible.length;
+          return (
+            <div key={i} className={"day-cell"+(isToday?' day-cell-today':'')}
+              onDragOver={e=>e.preventDefault()}
+              onDrop={e=>{const id=e.dataTransfer.getData('text/plain'); onMoveActivity(id,dateIso);}}>
+              <div className="day-cell-head">
+                <span className={"day-num"+(isToday?' day-num-today':'')}>{d}</span>
+                <button className="day-add" title="New activity" onClick={()=>onNewActivity(dateIso)}>+</button>
+              </div>
+              <div className="day-cards">
+                {visible.map(a=>{
+                  const end=a.endDate||a.date;
+                  const spans=end>a.date;
+                  let spanInfo=null;
+                  if(spans){
+                    let day=0,total=0;
+                    for(let d=new Date(a.date+'T00:00:00');U.iso(d)<=end;d.setDate(d.getDate()+1)){
+                      if(d.getDay()===0||d.getDay()===6) continue;
+                      total++;
+                      if(U.iso(d)<=dateIso) day=total;
+                    }
+                    spanInfo={day,total};
+                  }
+                  return <ActivityMiniCard key={a.id} activity={a} spanInfo={spanInfo} onOpen={onOpenActivity} onDragStart={(e,id)=>e.dataTransfer.setData('text/plain',id)} />;
+                })}
+                {overflow>0 && <button className="day-more" onClick={()=>setExpanded(x=>({...x,[dateIso]:true}))}>+{overflow} more</button>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function LiveActivityBar({activities,onOpenActivity}){
+  const live=activities.filter(a=>a.claimedBy);
+  if(live.length===0) return null;
+  return (
+    <section className="live-bar">
+      <div className="live-bar-title">● Currently Active <span className="count-badge">{live.length}</span></div>
+      <div className="live-bar-row">
+        {live.map(a=>{
+          const meta=U.statusMeta[a.status];
+          return (
+            <button key={a.id} className="live-card" onClick={()=>onOpenActivity(a.id)}>
+              <span className="avatar">{U.initials(a.claimedBy)}</span>
+              <span className="live-card-info">
+                <span className="live-card-title">{a.title}</span>
+                <span className="live-card-sub">{a.claimedBy} · since {U.fmtTimeOfDay(a.claimedAt)}</span>
+              </span>
+              <span className="status-dot-inline" style={{background:meta.color}}>{meta.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ParticipantChips({participants,team,onAdd,onRemove,onAddTeammate}){
+  const [picking,setPicking]=useState(false);
+  const [newName,setNewName]=useState('');
+  const available=team.filter(t=>!participants.includes(t));
+  return (
+    <div className="participants">
+      <div className="chip-row">
+        {participants.map(p=>(
+          <span key={p} className="chip chip-participant">
+            {p}
+            <button className="chip-x" onClick={()=>onRemove(p)}>×</button>
+          </span>
+        ))}
+        <button className="chip chip-add" onClick={()=>setPicking(o=>!o)}>+ Add</button>
+      </div>
+      {picking && (
+        <div className="picker-pop" onMouseLeave={()=>setPicking(false)}>
+          {available.map(t=><button key={t} className="picker-item" onClick={()=>{onAdd(t);setPicking(false);}}>{t}</button>)}
+          {available.length===0 && <div className="empty-hint">Everyone on the team is already added.</div>}
+          <div className="picker-new">
+            <input className="input input-sm" placeholder="New teammate name" value={newName} onChange={e=>setNewName(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){onAddTeammate(newName.trim());setNewName('');setPicking(false);}}}>Add</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskRow({task,onToggle,onRemove,onEditDeadline}){
+  const overdue=U.isTaskOverdue(task);
+  const [editing,setEditing]=useState(false);
+  const [deadline,setDeadline]=useState(task.deadline);
+  return (
+    <div className={"task-row"+(overdue?' task-row-overdue':'')}>
+      <input type="checkbox" checked={task.done} onChange={()=>onToggle(task.id)} />
+      <div className="task-info">
+        <span className={"task-title"+(task.done?' task-done':'')}>{task.title}</span>
+        {editing ? (
+          <div className="task-date-range">
+            <input className="input input-sm" type="date" value={deadline} onChange={e=>setDeadline(e.target.value)} />
+            <button className="btn btn-secondary btn-sm" onClick={()=>{onEditDeadline(task.id,deadline); setEditing(false);}}>Save</button>
+          </div>
+        ) : (
+          <span className="task-meta">{task.assignee||'Unassigned'} · <span className={overdue?'task-overdue':''}>{U.fmtDate(task.deadline)}{task.deadlineTime?' · '+task.deadlineTime:''}{overdue?' · Overdue':''}</span>{onEditDeadline && <button className="task-edit-dates" onClick={()=>setEditing(true)}>edit date</button>}</span>
+        )}
+      </div>
+      <button className="task-remove" onClick={()=>onRemove(task.id)}>×</button>
+    </div>
+  );
+}
+
+function NewTaskForm({team,onAdd}){
+  const [title,setTitle]=useState('');
+  const [assignee,setAssignee]=useState(team[0]||'');
+  const [deadline,setDeadline]=useState(U.todayIso());
+  return (
+    <form className="new-task-form" onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onAdd({title:title.trim(),assignee,deadline}); setTitle('');}}>
+      <input className="input input-sm" placeholder="New task" value={title} onChange={e=>setTitle(e.target.value)} />
+      <select className="input input-sm" value={assignee} onChange={e=>setAssignee(e.target.value)}>
+        {team.map(t=><option key={t} value={t}>{t}</option>)}
+      </select>
+      <input className="input input-sm" type="date" title="Deadline" value={deadline} onChange={e=>setDeadline(e.target.value)} />
+      <button className="btn btn-secondary btn-sm" type="submit">Add task</button>
+    </form>
+  );
+}
+
+function CategoryPicker({category,onChange}){
+  const [open,setOpen]=useState(false);
+  return (
+    <div className="status-pill-wrap">
+      <button className="category-badge category-badge-lg" onClick={()=>setOpen(o=>!o)}>{category||'No category'}</button>
+      {open && (
+        <div className="status-menu" onMouseLeave={()=>setOpen(false)}>
+          {U.categories.map(c=>(
+            <button key={c} className="status-menu-item" onClick={()=>{onChange(c);setOpen(false);}}>{c}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onEditTaskDeadline,onDelete,onClaim,onUnclaim,onEditActivity}){
+  const [editing,setEditing]=useState(false);
+  if(!activity) return null;
+  const spans=(activity.endDate||activity.date)>activity.date;
+  return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="drawer" onClick={e=>e.stopPropagation()}>
+        <button className="drawer-close" onClick={onClose}>×</button>
+        <div className="drawer-tags">
+          <StatusPill status={activity.status} onChange={s=>onChangeStatus(activity.id,s)} size="lg" />
+          <CategoryPicker category={activity.category} onChange={c=>onChangeCategory(activity.id,c)} />
+          <button className="btn btn-secondary btn-sm" onClick={()=>setEditing(true)} style={{marginLeft:'auto'}}>Edit</button>
+        </div>
+        {activity.recurring && <span className="chip recurring-chip">↻ Recurring · {activity.recurringLabel}</span>}
+        <h2 className="drawer-title">{activity.title}</h2>
+        <div className="drawer-date">{spans?U.fmtDateLong(activity.date)+' \u2192 '+U.fmtDateLong(activity.endDate):U.fmtDateLong(activity.date)}{activity.time?' · Due '+activity.time:''}</div>
+        {activity.claimedBy ? (
+          <div className="live-badge">
+            <span className="avatar avatar-sm">{U.initials(activity.claimedBy)}</span>
+            <span>Currently Working <strong>{activity.claimedBy}</strong> · since {U.fmtTimeOfDay(activity.claimedAt)}</span>
+            {activity.claimedBy===currentUser && <button className="btn btn-ghost btn-sm" onClick={()=>onUnclaim(activity.id)}>Release</button>}
+          </div>
+        ) : (
+          <button className="btn btn-secondary btn-sm" onClick={()=>onClaim(activity.id)}>Claim Activity</button>
+        )}
+        <p className="drawer-desc">{activity.description}</p>
+        <div className="drawer-section">
+          <div className="drawer-section-label">Participants</div>
+          <ParticipantChips participants={activity.participants} team={team}
+            onAdd={p=>onAddParticipant(activity.id,p)} onRemove={p=>onRemoveParticipant(activity.id,p)}
+            onAddTeammate={n=>onAddTeammate(n,activity.id)} />
+        </div>
+        <div className="drawer-section">
+          <div className="drawer-section-label">Tasks</div>
+          <div className="task-list">
+            {activity.tasks.length===0 && <div className="empty-hint">No tasks yet.</div>}
+            {activity.tasks.map(t=><TaskRow key={t.id} task={t} onToggle={id=>onToggleTask(activity.id,id)} onRemove={id=>onRemoveTask(activity.id,id)} onEditDeadline={(id,d)=>onEditTaskDeadline(activity.id,id,d)} />)}
+          </div>
+          <NewTaskForm team={team} onAdd={t=>onAddTask(activity.id,t)} />
+        </div>
+        {editing && <EditActivityModal activity={activity} team={team} onClose={()=>setEditing(false)} onSave={data=>{onEditActivity(activity.id,data);setEditing(false);}} />}
+        {activity.history && activity.history.length>0 && (
+          <div className="drawer-section">
+            <div className="drawer-section-label">History</div>
+            <div className="history-list">
+              {[...activity.history].reverse().map(h=>(
+                <div key={h.id} className="history-row">
+                  <span className="history-text">{h.text}</span>
+                  <span className="history-meta">{h.by?h.by+' \u00b7 ':''}{U.fmtTimeOfDay(h.at)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        <button className="btn btn-danger btn-block" onClick={()=>{if(confirm('Delete "'+activity.title+'"? This cannot be undone.')) onDelete(activity.id);}}>Delete activity</button>
+      </div>
+    </div>
+  );
+}
+
+function NewActivityModal({date,team,onClose,onCreate,onAddTeammate}){
+  const [title,setTitle]=useState('');
+  const [description,setDescription]=useState('');
+  const [startDate,setStartDate]=useState(date);
+  const [endDate,setEndDate]=useState(date);
+  const [status,setStatus]=useState('planned');
+  const [category,setCategory]=useState('');
+  const [participants,setParticipants]=useState([]);
+  const [newName,setNewName]=useState('');
+  const toggle=p=>setParticipants(ps=>ps.includes(p)?ps.filter(x=>x!==p):[...ps,p]);
+  return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <button className="drawer-close" onClick={onClose}>×</button>
+        <h2 className="drawer-title">New activity</h2>
+        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onCreate({title:title.trim(),description,date:startDate,endDate:endDate<startDate?startDate:endDate,status,category,participants});}}>
+          <label className="field-label">Title</label>
+          <input className="input" value={title} onChange={e=>setTitle(e.target.value)} autoFocus />
+          <label className="field-label">Description</label>
+          <textarea className="input" rows="3" value={description} onChange={e=>setDescription(e.target.value)}></textarea>
+          <div className="task-date-range">
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">Start date</label>
+              <input className="input" type="date" value={startDate} onChange={e=>{setStartDate(e.target.value); if(endDate<e.target.value) setEndDate(e.target.value);}} />
+            </div>
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">End date</label>
+              <input className="input" type="date" min={startDate} value={endDate} onChange={e=>setEndDate(e.target.value)} />
+            </div>
+          </div>
+          <label className="field-label">Category</label>
+          <select className="input" value={category} onChange={e=>setCategory(e.target.value)}>
+            <option value="">No category</option>
+            {U.categories.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="field-label">Status</label>
+          <div className="chip-row">
+            {Object.keys(U.statusMeta).map(s=>(
+              <button type="button" key={s} className={"chip chip-clickable"+(status===s?' chip-active':'')} style={status===s?{background:U.statusMeta[s].bg,color:U.statusMeta[s].color}:{}} onClick={()=>setStatus(s)}>{U.statusMeta[s].label}</button>
+            ))}
+          </div>
+          <label className="field-label">Participants</label>
+          <div className="chip-row">
+            {team.map(t=>(
+              <button type="button" key={t} className={"chip chip-clickable"+(participants.includes(t)?' chip-active':'')} style={participants.includes(t)?{background:'var(--planned-bg)',color:'var(--planned)'}:{}} onClick={()=>toggle(t)}>{t}</button>
+            ))}
+          </div>
+          <div className="picker-new" style={{marginTop:'8px'}}>
+            <input className="input input-sm" placeholder="New teammate name" value={newName} onChange={e=>setNewName(e.target.value)} />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){onAddTeammate(newName.trim());toggle(newName.trim());setNewName('');}}}>Add</button>
+          </div>
+          <button className="btn btn-primary btn-block" type="submit" style={{marginTop:'16px'}}>Create activity</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function EditActivityModal({activity,team,onClose,onSave}){
+  const [title,setTitle]=useState(activity.title);
+  const [description,setDescription]=useState(activity.description||'');
+  const [startDate,setStartDate]=useState(activity.date);
+  const [endDate,setEndDate]=useState(activity.endDate||activity.date);
+  const [status,setStatus]=useState(activity.status);
+  const [category,setCategory]=useState(activity.category||'');
+  const [participants,setParticipants]=useState(activity.participants);
+  const [newName,setNewName]=useState('');
+  const [notifyDate,setNotifyDate]=useState(activity.notifyDate||'');
+  const [notifyTime,setNotifyTime]=useState(activity.notifyTime||'');
+  const toggle=p=>setParticipants(ps=>ps.includes(p)?ps.filter(x=>x!==p):[...ps,p]);
+  return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <button className="drawer-close" onClick={onClose}>×</button>
+        <h2 className="drawer-title">Edit activity</h2>
+        <form onSubmit={e=>{e.preventDefault(); if(!title.trim())return; onSave({title:title.trim(),description,date:startDate,endDate:endDate<startDate?startDate:endDate,status,category,participants,notifyDate,notifyTime,notified:false});}}>
+          <label className="field-label">Title</label>
+          <input className="input" value={title} onChange={e=>setTitle(e.target.value)} autoFocus />
+          <label className="field-label">Description</label>
+          <textarea className="input" rows="3" value={description} onChange={e=>setDescription(e.target.value)}></textarea>
+          <div className="task-date-range">
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">Start date</label>
+              <input className="input" type="date" value={startDate} onChange={e=>{setStartDate(e.target.value); if(endDate<e.target.value) setEndDate(e.target.value);}} />
+            </div>
+            <div style={{flex:'1 1 130px'}}>
+              <label className="field-label">End date</label>
+              <input className="input" type="date" min={startDate} value={endDate} onChange={e=>setEndDate(e.target.value)} />
+            </div>
+          </div>
+          <label className="field-label">Category</label>
+          <select className="input" value={category} onChange={e=>setCategory(e.target.value)}>
+            <option value="">No category</option>
+            {U.categories.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+          <label className="field-label">Status</label>
+          <div className="chip-row">
+            {Object.keys(U.statusMeta).map(s=>(
+              <button type="button" key={s} className={"chip chip-clickable"+(status===s?' chip-active':'')} style={status===s?{background:U.statusMeta[s].bg,color:U.statusMeta[s].color}:{}} onClick={()=>setStatus(s)}>{U.statusMeta[s].label}</button>
+            ))}
+          </div>
+          <label className="field-label">Participants</label>
+          <div className="chip-row">
+            {team.map(t=>(
+              <button type="button" key={t} className={"chip chip-clickable"+(participants.includes(t)?' chip-active':'')} style={participants.includes(t)?{background:'var(--planned-bg)',color:'var(--planned)'}:{}} onClick={()=>toggle(t)}>{t}</button>
+            ))}
+          </div>
+          <div className="picker-new" style={{marginTop:'8px'}}>
+            <input className="input input-sm" placeholder="New teammate name" value={newName} onChange={e=>setNewName(e.target.value)} />
+            <button type="button" className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){toggle(newName.trim());setNewName('');}}}>Add</button>
+          </div>
+          <label className="field-label">Notify me (browser popup)</label>
+          <div className="task-date-range">
+            <div style={{flex:'1 1 130px'}}>
+              <input className="input" type="date" value={notifyDate} onChange={e=>setNotifyDate(e.target.value)} />
+            </div>
+            <div style={{flex:'1 1 100px'}}>
+              <input className="input" type="time" value={notifyTime} onChange={e=>setNotifyTime(e.target.value)} />
+            </div>
+          </div>
+          <button className="btn btn-primary btn-block" type="submit" style={{marginTop:'16px'}}>Save changes</button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+const MEME_GIFS=[
+  {label:'Thumbs up',url:'https://media.giphy.com/media/3o7abKhOpu0NwenH3O/giphy.gif'},
+  {label:'Clapping',url:'https://media.giphy.com/media/g9582DNuQppxC/giphy.gif'},
+  {label:'Mind blown',url:'https://media.giphy.com/media/l0MYt5jPR6QX5pnqM/giphy.gif'},
+  {label:'Party',url:'https://media.giphy.com/media/3o6Zt6ML6BklcajjsA/giphy.gif'},
+  {label:'Dancing',url:'https://media.giphy.com/media/xT9IgzoKnwFNmISR8I/giphy.gif'},
+  {label:'Facepalm',url:'https://media.giphy.com/media/l0HlBO7eyXzSZkJri/giphy.gif'},
 ];
 
-function isoLocal(d){const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;}
-
-function labelFor(rule){
-  if(rule.days.length===5 && [1,2,3,4,5].every(w=>rule.days.includes(w))) return 'Weekdays';
-  return rule.days.map(w=>['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][w]).join(' & ');
+function renderMessageText(text,team){
+  const parts=text.split(/(@[A-Za-z0-9._]+)/g);
+  return parts.map((p,i)=>{
+    const name=p.slice(1);
+    if(p.startsWith('@') && team.includes(name)) return <span key={i} className="mention-tag">{p}</span>;
+    return p;
+  });
 }
 
-// Keeps a rolling window of dated recurring occurrences so they appear as real activities
-// on every applicable calendar day, while preserving edits on occurrences already generated.
-function syncRecurringActivities(activities,team){
-  const today=new Date(); today.setHours(0,0,0,0);
-  const start=new Date(today); start.setDate(start.getDate()-14);
-  const end=new Date(today); end.setDate(end.getDate()+120);
-  const defaultTeam=team||['Assia.D','Hugo.M','Killian.B','Benjamin.R'];
-  const nonRecurring=activities.filter(a=>!a.recurring);
-  const existingById={};
-  activities.filter(a=>a.recurring && /-\d{4}-\d{2}-\d{2}$/.test(a.id)).forEach(a=>{existingById[a.id]=a;});
-  const out=[];
-  for(let d=new Date(start);d<=end;d.setDate(d.getDate()+1)){
-    const wd=d.getDay();
-    const dateIso=isoLocal(d);
-    RECURRING_RULES.forEach(rule=>{
-      if(!rule.days.includes(wd)) return;
-      const id='rec-'+rule.key+'-'+dateIso;
-      if(existingById[id]){ out.push({...existingById[id],category:existingById[id].category||rule.category||''}); return; }
-      out.push({
-        id,title:rule.title,description:rule.description,date:dateIso,time:rule.time,
-        status:'planned',category:rule.category||'',participants:defaultTeam,claimedBy:null,claimedAt:null,
-        recurring:true,recurringLabel:labelFor(rule),
-        tasks:rule.deliverables.map((label,i)=>({id:id+'-t'+i,title:label,assignee:'',deadline:dateIso,deadlineTime:rule.time,done:false}))
-      });
-    });
+const CHAT_ADMIN='Hugo.M';
+const emptySession={active:false,messages:[]};
+function unreadCount(session,user){
+  if(!session||!session.messages||!session.messages.length) return 0;
+  const lastRead=session.lastReadAt&&session.lastReadAt[user];
+  return session.messages.filter(m=>m.from!==user&&(!lastRead||m.at>lastRead)).length;
+}
+
+function ChatPanel({team,currentUser,chat,onSend,onStart,onEnd,onDelete,onMarkRead}){
+  const isAdmin=currentUser===CHAT_ADMIN;
+  const [open,setOpen]=useState(false);
+  const [thread,setThread]=useState(null);
+  const [text,setText]=useState('');
+  const [showMentions,setShowMentions]=useState(false);
+  const [showGifs,setShowGifs]=useState(false);
+  const scrollRef=useRef(null);
+  const others=team.filter(t=>t!==CHAT_ADMIN);
+  const hasHistory=s=>!!(s&&s.messages&&s.messages.length>0);
+  const myThreads=isAdmin ? others : (hasHistory(chat[currentUser]) ? [CHAT_ADMIN] : []);
+  const visible=isAdmin || myThreads.length>0;
+  const activeThreadName=isAdmin?thread:CHAT_ADMIN;
+  const session=activeThreadName ? (isAdmin?(chat[activeThreadName]||emptySession):(chat[currentUser]||emptySession)) : emptySession;
+  const totalUnread=isAdmin ? others.reduce((sum,t)=>sum+unreadCount(chat[t],currentUser),0) : unreadCount(chat[currentUser],currentUser);
+  useEffect(()=>{if(scrollRef.current) scrollRef.current.scrollTop=scrollRef.current.scrollHeight;},[session.messages.length,open,thread]);
+  useEffect(()=>{if(!isAdmin && myThreads.length && !thread) setThread(CHAT_ADMIN);},[isAdmin,myThreads.length,thread]);
+  useEffect(()=>{
+    if(open && activeThreadName && session.messages.length>0) onMarkRead(isAdmin?activeThreadName:currentUser);
+  },[open,activeThreadName,session.messages.length]);
+  if(!visible) return null;
+  function submit(e){
+    e&&e.preventDefault();
+    if(!text.trim()||!activeThreadName) return;
+    onSend(isAdmin?activeThreadName:currentUser,{text:text.trim()});
+    setText(''); setShowMentions(false);
   }
-  return [...nonRecurring,...out];
-}
-function normalizeActivities(raw){
-  if(!raw) return [];
-  const arr=Array.isArray(raw)?raw:Object.values(raw);
-  return arr.filter(Boolean).map(a=>({
-    ...a,
-    participants:Array.isArray(a.participants)?a.participants:(a.participants?Object.values(a.participants):[]),
-    tasks:Array.isArray(a.tasks)?a.tasks:(a.tasks?Object.values(a.tasks):[]),
-    endDate:a.endDate||a.date,
-    history:Array.isArray(a.history)?a.history:(a.history?Object.values(a.history):[])
-  }));
-}
-function normalizeTeam(raw){
-  if(!raw) return [];
-  return Array.isArray(raw)?raw:Object.values(raw);
-}
-window.DashData={buildSeedData,syncRecurringActivities,normalizeActivities,normalizeTeam};
-window.TUTORIALS=[
-  {
-    id:'app-basics',
-    title:'Using Plandeck',
-    tag:'Getting Started',
-    summary:'A quick tour of the dashboard \u2014 calendar, activities, tasks, and the views in the sidebar.',
-    steps:[
-      'Log in with just your name \u2014 no password needed. This is how the app identifies you everywhere (tasks, participants, claims).',
-      'The main Calendar shows every activity as a colored card on its date. Card color reflects status: blue = Planned, orange = In Progress, green = Done.',
-      'Click any activity card to open its details in the right-hand drawer: description, status, category, participants, tasks, and history.',
-      'Click the status pill at the top of the drawer to change Planned \u2192 In Progress \u2192 Done \u2014 the color updates everywhere instantly.',
-      'Click the category badge next to it to tag the activity\u2019s business area (Equity, Fixed Income, Funds, Alternative, CIO, DPM, Advisory, Banker).',
-      'Use "+ Add" under Participants to add yourself or a teammate to an activity, or the \u00d7 on a chip to remove someone (their tasks reassign automatically to Assia.D).',
-      'Click "+ New Activity" (top right) or the + on any calendar day to create a new activity. Set a different End date to make the activity span multiple days \u2014 it shows on every day in that range as one entity, not duplicates.',
-      'Add tasks inside an activity with a title, assignee, and a single deadline; check the box to mark one done.',
-      'Click "Claim Activity" to mark yourself as actively working on it \u2014 it shows your name and a live badge, adds you as a participant automatically, and appears in the "Currently Active" bar at the top for everyone to see.',
-      'Click "+ New Activity" (top right) or the + on any calendar day to create a new activity.',
-      'Drag a card to a different day on the calendar to reschedule it.',
-      'Use "Delete activity" at the bottom of the drawer to remove an activity entirely (asks for confirmation first).',
-      'Use the sidebar to switch views: My Space (your activities and tasks), Weekly Summary (team recap with charts), and Tutorial Library (these guides).',
-      'The sidebar also has Filters (search, status, participant, category), a Team block to add or remove teammates, and Team Presence showing who\u2019s online right now and what they\u2019re working on.',
-      'Weekly Summary shows donut charts for activity-by-category and status, task completion stats, and a team workload leaderboard (crown for top contributor).'
-    ],
-    notes:[
-      'Everything you do is shared instantly with the rest of the team \u2014 there\u2019s no separate "save" step',
-      'Recurring activities (like The Blog or Wrap Up) show up automatically on their scheduled days; My Space only shows the current active occurrence of each to avoid clutter'
-    ]
-  },
-  {
-    id:'blog',
-    title:'The Blog \u2014 Daily "Syz The Moment"',
-    tag:'Daily',
-    summary:'Clone yesterday\u2019s post, pull the latest content from Charles-Henry\u2019s LinkedIn, and publish before 18:00.',
-    steps:[
-      {text:'Open HubSpot \u2192 Content \u2192 Blog',images:['assets/tut-blog-1.png']},
-      'Select "Syz The Moment"',
-      'Find the last post \u2192 click Clone',
-      'Open Charles-Henry\u2019s LinkedIn \u2192 go to his posts',
-      'Copy the title (usually the first sentence) from the most recent post',
-      'Back in HubSpot, open Settings (top right)',
-      'Paste the new title into "Blog title"',
-      'Click the pencil icon on "Blog URL" \u2192 paste the title again into "Content Slug"',
-      'Choose one or two tags from the existing options (don\u2019t create new ones)',
-      'Go back to the post, save the image ("Save As")',
-      'In HubSpot, click Upload and upload the image (it should become "featured")',
-      'Copy the rest of the post text, including the source',
-      'Paste that text into "Meta description"',
-      'Close Settings',
-      {text:'Open Preview (top right) and check the content matches the LinkedIn post',images:['assets/tut-blog-2.png','assets/tut-blog-3.png','assets/tut-blog-4.png','assets/tut-blog-5.png','assets/tut-blog-6.png','assets/tut-blog-7.png']},
-      'Make sure there are no leftover # in the text',
-      'Select Back, then Publish \u2192 Publish \u2192 Exit'
-    ],
-    notes:[
-      'Deadline is 18:00 every day \u2014 avoid changes after 17:55 (publishing takes a few minutes)',
-      'Publish at least 10 posts (around 15 is better)',
-      'Contact Anna if there\u2019s a deadline issue',
-      'Skip posts that are just thank-yous or blog announcements',
-      'Prefer same-day posts; if short on content, check the previous day or Valerie Noel\u2019s LinkedIn',
-      'To fix a published mistake: open the post \u2192 edit \u2192 Update'
-    ]
-  },
-  {
-    id:'wrapup-create',
-    title:'Wrap Up \u2014 Global Markets Slide Creation',
-    tag:'Mon\u2013Fri',
-    summary:'Collect the week\u2019s LinkedIn posts, categorize them, and build the slide deck ahead of Thursday/Friday review.',
-    steps:[
-      'Collection: gather all LinkedIn posts from Charles-Henry Monchau, Monday through Friday 5 PM',
-      'Categorize each post: Markets, Macro, Central Banks, Geopolitics, Crypto, Food for Thought',
-      'Inside Markets, organize by: Equities, Bonds, Forex, Commodities, Alternatives',
-      'Within every category, order geographically: US \u2192 Europe \u2192 Rest of the World',
-      'Keep a logical, smooth flow between slides wherever possible',
-      'Each post = one vertical slide with: image, text (trimmed if needed), source, relevant hashtags',
-      'Align the image under the text, same width \u2014 never wider than the category title or text block',
-      'Resize images so they stay clear, especially if they contain text',
-      'If a post has no text, keep only the image and source \u2014 no need to add filler text',
-      'For long posts: trim less relevant content and prioritize the key insight',
-      'Remove all hashtags from the body text itself',
-      'If a source is missing, check the end of the text and the image for branding/logos; if still missing, flag it for Charles-Henry Monchau'
-    ],
-    notes:[
-      'Thursday 5 PM \u2192 submit all slides created since Monday to Charles-Henry Monchau for review',
-      'He may reorder, remove, or send slides back',
-      'Friday \u2192 finalize remaining posts from his Thursday review and submit the completed set by 5 PM',
-      'Saturday (before 11:45 AM) \u2192 the final wrap-up must be posted on HubSpot \u2014 see the Saturday Upload tutorial'
-    ]
-  },
-  {
-    id:'wrapup-upload',
-    title:'Wrap Up \u2014 Saturday HubSpot Upload',
-    tag:'Saturday',
-    summary:'Take the finalized wrap-up PDF and publish it as the week\u2019s "Fast Food for Thought" post before 11:45 AM.',
-    steps:[
-      'In HubSpot, filter by "fast food for thought"',
-      'Find last week\u2019s Wrapup post \u2192 click Clone \u2192 delete "(clone)" from the end of the title',
-      'Open the email from Charles and download/save the wrapup PDF attachment',
-      {text:'Copy the new title and replace the old one in HubSpot',images:['assets/tut-wrapup-upload-1.png','assets/tut-wrapup-upload-2.png']},
-      'Copy the new text block and replace the old block',
-      'Copy roughly half of the text block \u2192 open Settings \u2192 Metadata \u2192 delete old text \u2192 paste the copied section \u2192 close',
-      {text:'Click "PDF" \u2192 pencil icon \u2192 Replace \u2192 Upload \u2192 upload the saved wrapup \u2192 select it under "recently uploaded" \u2192 Apply',images:['assets/tut-wrapup-upload-3.png']},
-      'Click Preview \u2192 open the PDF from the new tab \u2192 copy its link',
-      'Go back to Preview, then back to the original tab',
-      {text:'On the left side, open Contents \u2192 under hidden modules find "PDF Link" \u2192 replace the old link with the copied one',images:['assets/tut-wrapup-upload-4.png']},
-      'Upload / publish'
-    ],
-    notes:[
-      'Must be posted before 11:45 AM Saturday',
-      'Uses the finalized deck submitted Friday at 5 PM'
-    ]
+  function sendGif(url){
+    if(!activeThreadName) return;
+    onSend(isAdmin?activeThreadName:currentUser,{text:'',gif:url});
+    setShowGifs(false);
   }
-];
-window.DashUtils={
-  iso:d=>{const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');return y+'-'+m+'-'+day;},
-  todayIso:()=>window.DashUtils.iso(new Date()),
-  fmtDate:iso=>{const d=new Date(iso+'T00:00:00');return d.toLocaleDateString(undefined,{month:'short',day:'numeric'});},
-  fmtDateLong:iso=>{const d=new Date(iso+'T00:00:00');return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});},
-  daysBetween:(iso)=>{const t=new Date(window.DashUtils.todayIso()+'T00:00:00');const d=new Date(iso+'T00:00:00');return Math.round((d-t)/86400000);},
-  dateInRange:(dateIso,startIso,endIso)=>dateIso>=(startIso||endIso) && dateIso<=endIso,
-  isTaskOverdue:(task)=>{if(task.done) return false; const db=window.DashUtils.daysBetween(task.deadline); if(db<0) return true; if(db>0) return false; if(!task.deadlineTime) return false; const now=new Date(); const [h,m]=task.deadlineTime.split(':').map(Number); return now.getHours()>h || (now.getHours()===h && now.getMinutes()>m);},
-  fmtTime:(t)=>t?t:'',
-  statusMeta:{
-    planned:{label:'Planned',color:'var(--planned)',bg:'var(--planned-bg)'},
-    progress:{label:'In Progress',color:'var(--progress)',bg:'var(--progress-bg)'},
-    done:{label:'Done',color:'var(--done)',bg:'var(--done-bg)'}
-  },
-  uid:()=>Math.random().toString(36).slice(2,9),
-  initials:(name)=>name.split(/[\s.]+/).filter(Boolean).slice(0,2).map(w=>w[0].toUpperCase()).join(''),
-  fmtTimeOfDay:(iso)=>new Date(iso).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}),
-  startOfWeek:(d)=>{const x=new Date(d);x.setDate(x.getDate()-x.getDay());x.setHours(0,0,0,0);return x;},
-  endOfWeek:(d)=>{const s=new Date(d);s.setDate(s.getDate()-s.getDay()+6);s.setHours(0,0,0,0);return s;},
-  fmtRange:(start,end)=>{const opt={month:'short',day:'numeric'};const s=start.toLocaleDateString(undefined,opt);const e=end.toLocaleDateString(undefined,{...opt,year:'numeric'});return s+' – '+e;},
-  startOfMonth:(d)=>new Date(d.getFullYear(),d.getMonth(),1),
-  endOfMonth:(d)=>new Date(d.getFullYear(),d.getMonth()+1,0),
-  fmtMonth:(d)=>d.toLocaleDateString(undefined,{month:'long',year:'numeric'}),
-  categoryPalette:['#79D6FF','#FFA400','#3BAF90','#9DD9D2','#FF6C0E','#E6A4AD','#AC5D85','#FFC545'],
-  categories:['Equity','Fixed Income','Funds','Alternative','CIO','DPM','Advisory','Banker'],
-  categoryColors:{'Equity':'#79D6FF','Fixed Income':'#FFA400','Funds':'#3BAF90','Alternative':'#9DD9D2','CIO':'#FF6C0E','DPM':'#E6A4AD','Advisory':'#AC5D85','Banker':'#FFC545'},
-  uniqueActivities:(list)=>{
-    const seen=new Set(); const out=[];
-    list.forEach(a=>{
-      const key=a.recurring?'r:'+a.title:'a:'+a.id;
-      if(seen.has(key)) return;
-      seen.add(key); out.push(a);
-    });
-    return out;
-  },
-  categories:['Equity','Fixed Income','Funds','Alternative','CIO','DPM','Advisory','Banker']
-};
+  function onTextChange(v){
+    setText(v);
+    setShowMentions(/@[A-Za-z0-9._]*$/.test(v));
+  }
+  function pickMention(name){
+    setText(t=>t.replace(/@[A-Za-z0-9._]*$/,'@'+name+' '));
+    setShowMentions(false);
+  }
+  const showLog=isAdmin ? (activeThreadName && (session.active||hasHistory(session))) : hasHistory(session);
+  const showStartPrompt=isAdmin && activeThreadName && !session.active && !hasHistory(session);
+  return (
+    <div className={"chat-dock"+(open?' chat-dock-open':'')}>
+      {!open && (
+
+        <button className={"chat-toggle"+(totalUnread>0?' chat-toggle-alert':'')} onClick={()=>setOpen(true)}>
+          💬 Chat{totalUnread>0 && <span className="chat-badge">{totalUnread>9?'9+':totalUnread}</span>}
+        </button>
+      )}
+      {open && (
+        <div className="chat-panel">
+          <div className="chat-head">
+            <span>{isAdmin?'Direct Chats':'Chat with '+CHAT_ADMIN}</span>
+            <div style={{display:'flex',gap:'8px',alignItems:'center'}}>
+              {isAdmin && activeThreadName && session.active && <button className="btn btn-secondary btn-sm" onClick={()=>onEnd(activeThreadName)}>End chat</button>}
+              {isAdmin && activeThreadName && hasHistory(session) && <button className="btn btn-secondary btn-sm" onClick={()=>{if(confirm('Delete this conversation permanently?')) onDelete(activeThreadName);}}>Delete</button>}
+              <button className="drawer-close" onClick={()=>setOpen(false)}>×</button>
+            </div>
+          </div>
+          {isAdmin && (
+            <div className="chat-tabs">
+              {others.map(t=>{
+                const s=chat[t];
+                const u=unreadCount(s,currentUser);
+                return <button key={t} className={"chat-tab"+(thread===t?' chat-tab-active':'')+(s&&s.active?' chat-tab-live':'')} onClick={()=>setThread(t)}>{t}{u>0 && <span className="chat-tab-badge">{u}</span>}</button>;
+              })}
+            </div>
+          )}
+          {isAdmin && !activeThreadName && <div className="empty-hint" style={{padding:'16px'}}>Pick a teammate to chat with.</div>}
+          {showStartPrompt && (
+            <div className="chat-empty-admin">
+              <p className="empty-hint">No active chat with {activeThreadName}.</p>
+              <button className="btn btn-primary btn-sm" onClick={()=>onStart(activeThreadName)}>Start chat</button>
+            </div>
+          )}
+          {showLog && (
+            <>
+              <div className="chat-messages" ref={scrollRef}>
+                {session.messages.length===0 && <div className="empty-hint">No messages yet.</div>}
+                {session.messages.map(m=>(
+                  <div key={m.id} className={"chat-msg"+(m.from===currentUser?' chat-msg-mine':'')}>
+                    <div className="chat-msg-head"><span className="avatar avatar-xs">{U.initials(m.from)}</span><span className="chat-msg-from">{m.from}</span><span className="chat-msg-time">{U.fmtTimeOfDay(m.at)}</span></div>
+                    {m.text && <div className="chat-msg-text">{renderMessageText(m.text,team)}</div>}
+                    {m.gif && <img className="chat-msg-gif" src={m.gif} alt="gif" />}
+                  </div>
+                ))}
+              </div>
+              {!session.active && (
+                <div className="chat-ended-note">
+                  This conversation has ended.
+                  {isAdmin && <button className="btn btn-primary btn-sm" onClick={()=>onStart(activeThreadName)}>Resume chat</button>}
+                </div>
+              )}
+              {session.active && showMentions && (
+                <div className="chat-mentions">
+                  {team.filter(t=>t!==currentUser).map(t=><button key={t} className="picker-item" onClick={()=>pickMention(t)}>{t}</button>)}
+                </div>
+              )}
+              {session.active && showGifs && (
+                <div className="chat-gifs">
+                  {MEME_GIFS.map(g=><button key={g.url} className="chat-gif-thumb" title={g.label} onClick={()=>sendGif(g.url)}><img src={g.url} alt={g.label} /></button>)}
+                </div>
+              )}
+              {session.active && (
+                <form className="chat-input-row" onSubmit={submit}>
+                  <button type="button" className="btn btn-secondary btn-sm" onClick={()=>setShowGifs(o=>!o)}>GIF</button>
+                  <input className="input input-sm" placeholder="Message… use @ to mention" value={text} onChange={e=>onTextChange(e.target.value)} />
+                  <button className="btn btn-primary btn-sm" type="submit">Send</button>
+                </form>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConfirmRemoveModal({name,onArchive,onDelete,onCancel}){
+  const [text,setText]=useState('');
+  return (
+    <div className="drawer-overlay" onClick={onCancel}>
+      <div className="modal modal-sm" onClick={e=>e.stopPropagation()}>
+        <button className="drawer-close" onClick={onCancel}>×</button>
+        <h2 className="drawer-title">Remove {name}?</h2>
+        <p className="drawer-desc">Move {name} to <strong>Old members</strong> to keep their history but stop new assignments, or delete permanently — this reassigns all their tasks to Assia.D and can't be undone.</p>
+        <button className="btn btn-secondary btn-block" onClick={onArchive}>Move to Old members</button>
+        <div style={{marginTop:'16px',borderTop:'1px solid var(--border)',paddingTop:'16px'}}>
+          <input className="input" autoFocus value={text} onChange={e=>setText(e.target.value)} placeholder="Type remove to delete permanently" />
+          <button className="btn btn-danger btn-block" disabled={text.trim().toLowerCase()!=='remove'} onClick={onDelete} style={{marginTop:'12px'}}>Delete {name} permanently</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CategoryManagerModal({categories,onRename,onAdd,onDelete,onClose}){
+  const [newName,setNewName]=useState('');
+  const [newColor,setNewColor]=useState(U.categoryPalette[0]);
+  const [editing,setEditing]=useState(null);
+  const [draft,setDraft]=useState('');
+  const [draftColor,setDraftColor]=useState('');
+  return (
+    <div className="drawer-overlay" onClick={onClose}>
+      <div className="modal" onClick={e=>e.stopPropagation()}>
+        <button className="drawer-close" onClick={onClose}>×</button>
+        <h2 className="drawer-title">Categories</h2>
+        <p className="drawer-desc">Rename a category to update it everywhere, or add a new one.</p>
+        <div className="cat-manage-list">
+          {categories.map(c=>editing===c.name ? (
+            <div key={c.name} className="cat-manage-row">
+              <input className="color-swatch-input" type="color" value={draftColor} onChange={e=>setDraftColor(e.target.value)} />
+              <input className="input input-sm" value={draft} autoFocus onChange={e=>setDraft(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'){onRename(c.name,draft,draftColor);setEditing(null);}}} />
+              <button className="btn btn-secondary btn-sm" onClick={()=>{onRename(c.name,draft,draftColor);setEditing(null);}}>Save</button>
+              <button className="btn btn-ghost btn-sm" onClick={()=>setEditing(null)}>Cancel</button>
+            </div>
+          ) : (
+            <div key={c.name} className="cat-manage-row">
+              <span className="legend-dot" style={{background:c.color}}></span>
+              <span className="cat-manage-name">{c.name}</span>
+              <button className="btn btn-ghost btn-sm" onClick={()=>{setEditing(c.name);setDraft(c.name);setDraftColor(c.color);}}>Rename</button>
+              <button className="btn btn-ghost btn-sm cat-manage-del" title="Delete category" onClick={()=>onDelete(c.name)}>×</button>
+            </div>
+          ))}
+        </div>
+        <label className="field-label">New category</label>
+        <div className="cat-manage-row">
+          <input className="color-swatch-input" type="color" value={newColor} onChange={e=>setNewColor(e.target.value)} />
+          <input className="input input-sm" placeholder="Category name" value={newName} onChange={e=>setNewName(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&newName.trim()){onAdd(newName,newColor);setNewName('');}}} />
+          <button className="btn btn-primary btn-sm" onClick={()=>{if(newName.trim()){onAdd(newName,newColor);setNewName('');}}}>Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Sidebar({team,currentUser,activities,filters,setFilters,onOpenActivity,view,setView,onAddTeammate,onRemoveTeammate,onArchiveTeammate,onRestoreTeammate,oldTeam,categories,onRenameCategory,onAddCategory,onDeleteCategory,onlineUsers}){
+  const myTasksRaw=[];
+  activities.forEach(a=>a.tasks.forEach(t=>{if((t.assignee===currentUser || (!t.assignee && a.participants.includes(currentUser))) && !t.done) myTasksRaw.push({...t,activityId:a.id,activityTitle:a.title,recurring:a.recurring,date:a.date});}));
+  const seenRecurring=new Set();
+  const myTasks=[];
+  myTasksRaw.sort((a,b)=>a.date<b.date?-1:1).forEach(t=>{
+    if(t.recurring){
+      const key=t.activityTitle;
+      if(seenRecurring.has(key)) return;
+      seenRecurring.add(key);
+    }
+    myTasks.push(t);
+  });
+  myTasks.sort((a,b)=>a.deadline<b.deadline?-1:1);
+  const [newName,setNewName]=useState('');
+  const [pendingRemove,setPendingRemove]=useState(null);
+  const [managingCats,setManagingCats]=useState(false);
+  const claimedByName={};
+  activities.forEach(a=>{if(a.claimedBy) claimedByName[a.claimedBy]=a.title;});
+  const onlineSet=new Set(onlineUsers||[]);
+  return (
+    <aside className="sidebar">
+      <nav className="side-nav">
+        <button className={"side-nav-item"+(view==='calendar'?' side-nav-active':'')} onClick={()=>setView('calendar')}>Calendar</button>
+        <button className={"side-nav-item"+(view==='personal'?' side-nav-active':'')} onClick={()=>setView('personal')}>My Dashboard</button>
+        <button className={"side-nav-item"+(view==='weekly'?' side-nav-active':'')} onClick={()=>setView('weekly')}>Weekly Summary</button>
+        <button className={"side-nav-item"+(view==='tutorials'?' side-nav-active':'')} onClick={()=>setView('tutorials')}>Tutorial Library</button>
+      </nav>
+      <div className="side-block">
+        <div className="side-title">Team Presence</div>
+        {onlineSet.size===0 && <div className="empty-hint">No one else online.</div>}
+        <div className="presence-list">
+          {team.filter(t=>onlineSet.has(t)).map(t=>(
+            <div key={t} className="presence-row">
+              <span className="presence-avatar-wrap"><span className="avatar avatar-sm">{U.initials(t)}</span><span className="presence-dot"></span></span>
+              <span className="presence-info">
+                <span className="presence-name">{t}{t===currentUser?' (you)':''}</span>
+                <span className="presence-activity">{claimedByName[t]?'Working on '+claimedByName[t]:'Online'}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="side-block">
+        <div className="side-title">My Tasks</div>
+        {myTasks.length===0 && <div className="empty-hint">Nothing assigned yet.</div>}
+        {myTasks.slice(0,5).map(t=>(
+          <button key={t.id+t.activityId} className="side-task" onClick={()=>onOpenActivity(t.activityId)}>
+            <span className="side-task-title">{t.recurring?t.activityTitle:t.title}</span>
+            <span className="side-task-sub">{t.recurring?t.title:t.activityTitle} {'\u00b7'} {U.fmtDate(t.deadline)}</span>
+          </button>
+        ))}
+      </div>
+      <div className="side-block">
+        <div className="side-title">Filters</div>
+        <input className="input input-sm" placeholder="Search activities…" value={filters.search} onChange={e=>setFilters(f=>({...f,search:e.target.value}))} />
+        <div className="filter-group">
+          {Object.keys(U.statusMeta).map(s=>(
+            <button key={s} className={"chip chip-clickable"+(filters.statuses.includes(s)?' chip-active':'')}
+              style={filters.statuses.includes(s)?{background:U.statusMeta[s].bg,color:U.statusMeta[s].color}:{}}
+              onClick={()=>setFilters(f=>({...f,statuses:f.statuses.includes(s)?f.statuses.filter(x=>x!==s):[...f.statuses,s]}))}>{U.statusMeta[s].label}</button>
+          ))}
+        </div>
+        <select className="input input-sm" value={filters.participant} onChange={e=>setFilters(f=>({...f,participant:e.target.value}))}>
+          <option value="">All participants</option>
+          {team.map(t=><option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="input input-sm" value={filters.category} onChange={e=>setFilters(f=>({...f,category:e.target.value}))}>
+          <option value="">All categories</option>
+          {U.categories.map(c=><option key={c} value={c}>{c}</option>)}
+        </select>
+        <button className="btn btn-ghost btn-sm" style={{alignSelf:'flex-start'}} onClick={()=>setManagingCats(true)}>Manage categories</button>
+      </div>
+      <div className="side-block">
+        <div className="side-title">Team</div>
+        <div className="chip-row">{team.map(t=>(
+          <span key={t} className="chip chip-participant">{t}
+            {t!=='Assia.D' && <button className="chip-x" title="Remove from team" onClick={()=>setPendingRemove(t)}>{'\u00d7'}</button>}
+          </span>
+        ))}</div>
+        <div className="picker-new">
+          <input className="input input-sm" placeholder="New participant name" value={newName} onChange={e=>setNewName(e.target.value)} />
+          <button className="btn btn-secondary btn-sm" onClick={()=>{if(newName.trim()){onAddTeammate(newName.trim());setNewName('');}}}>Add</button>
+        </div>
+      </div>
+      {oldTeam && oldTeam.length>0 && (
+        <div className="side-block">
+          <div className="side-title">Old members</div>
+          <div className="chip-row">{oldTeam.map(t=>(
+            <span key={t} className="chip chip-participant" style={{opacity:.6}}>{t}
+              <button className="chip-x" title="Restore to team" onClick={()=>onRestoreTeammate(t)}>{'\u21bb'}</button>
+            </span>
+          ))}</div>
+        </div>
+      )}
+      {managingCats && <CategoryManagerModal categories={categories} onRename={onRenameCategory} onAdd={onAddCategory} onDelete={onDeleteCategory} onClose={()=>setManagingCats(false)} />}
+      {pendingRemove && <ConfirmRemoveModal name={pendingRemove} onCancel={()=>setPendingRemove(null)} onArchive={()=>{onArchiveTeammate(pendingRemove);setPendingRemove(null);}} onDelete={()=>{onRemoveTeammate(pendingRemove);setPendingRemove(null);}} />}
+    </aside>
+  );
+}
+
+function PersonalView({currentUser,activities,onOpenActivity,onToggleTask}){
+  const todayIso=U.todayIso();
+  const nonRecurringMine=activities.filter(a=>!a.recurring && a.participants.includes(currentUser));
+  const recurringMine=activities.filter(a=>a.recurring && a.participants.includes(currentUser));
+  const byTitle={};
+  recurringMine.forEach(a=>{(byTitle[a.title]=byTitle[a.title]||[]).push(a);});
+  const activeRecurring=[];
+  Object.values(byTitle).forEach(list=>{
+    const upcoming=list.filter(a=>a.date>=todayIso).sort((a,b)=>a.date<b.date?-1:1);
+    const active=upcoming.find(a=>a.status!=='done')||upcoming[0];
+    if(active) activeRecurring.push(active);
+  });
+  const myActivities=[...nonRecurringMine,...activeRecurring].sort((a,b)=>a.date<b.date?-1:1);
+  const myTasks=[];
+  myActivities.forEach(a=>a.tasks.forEach(t=>{if(t.assignee===currentUser || (!t.assignee && a.participants.includes(currentUser))) myTasks.push({...t,activityId:a.id,activityTitle:a.title});}));
+  const upcoming=myTasks.filter(t=>!t.done && U.daysBetween(t.deadline)>=0 && U.daysBetween(t.deadline)<=7).sort((a,b)=>a.deadline<b.deadline?-1:1);
+  const overdue=myTasks.filter(t=>!t.done && U.daysBetween(t.deadline)<0).sort((a,b)=>a.deadline<b.deadline?-1:1);
+  const completed=myTasks.filter(t=>t.done).sort((a,b)=>a.deadline<b.deadline?1:-1);
+  return (
+    <div className="personal-view">
+      <section className="personal-section">
+        <h3>My Activities</h3>
+        <div className="my-activities-list">
+          {myActivities.length===0 && <div className="empty-hint">You're not on any activities yet.</div>}
+          {myActivities.map(a=>{
+            const meta=U.statusMeta[a.status];
+            return (
+              <button key={a.id} className={"my-activity-row"+(a.claimedBy?' my-activity-row-live':'')} onClick={()=>onOpenActivity(a.id)}>
+                <span className="my-activity-bar" style={{background:meta.color}}></span>
+                <span className="my-activity-main">
+                  <span className="my-activity-title">{a.title}</span>
+                  <span className="my-activity-meta">{U.fmtDate(a.date)}{a.time?' \u00b7 Due '+a.time:''}{a.claimedBy?' \u00b7 '+a.claimedBy+' working now':''}</span>
+                </span>
+                {a.category && <span className="category-tag">{a.category}</span>}
+                <span className="status-badge" style={{background:meta.bg,color:meta.color}}>{meta.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+      <div className="personal-columns">
+        <section className="personal-section">
+          <h3>Overdue <span className="count-badge count-danger">{overdue.length}</span></h3>
+          {overdue.length===0 && <div className="empty-hint">Nothing overdue. Nice.</div>}
+          {overdue.map(t=><TaskRow key={t.id+t.activityId} task={t} onToggle={()=>onToggleTask(t.activityId,t.id)} onRemove={()=>{}} />)}
+        </section>
+        <section className="personal-section">
+          <h3>Upcoming <span className="count-badge">{upcoming.length}</span></h3>
+          {upcoming.length===0 && <div className="empty-hint">Nothing due in the next week.</div>}
+          {upcoming.map(t=><TaskRow key={t.id+t.activityId} task={t} onToggle={()=>onToggleTask(t.activityId,t.id)} onRemove={()=>{}} />)}
+        </section>
+        <section className="personal-section">
+          <h3>Completed <span className="count-badge count-done">{completed.length}</span></h3>
+          {completed.length===0 && <div className="empty-hint">Nothing completed yet.</div>}
+          {completed.map(t=><TaskRow key={t.id+t.activityId} task={t} onToggle={()=>onToggleTask(t.activityId,t.id)} onRemove={()=>{}} />)}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({segments,size,centerLabel,centerSub}){
+  const s=size||140, r=s*0.36, stroke=s*0.16, c=s/2, circ=2*Math.PI*r;
+  const total=segments.reduce((n,x)=>n+x.value,0);
+  let offset=0;
+  return (
+    <div className="donut-wrap" style={{width:s}}>
+      <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+        <circle cx={c} cy={c} r={r} fill="none" stroke="var(--surface-2)" strokeWidth={stroke} />
+        {total>0 && segments.filter(x=>x.value>0).map((seg,i)=>{
+          const frac=seg.value/total;
+          const dash=frac*circ;
+          const el=(
+            <circle key={i} cx={c} cy={c} r={r} fill="none" stroke={seg.color} strokeWidth={stroke}
+              strokeDasharray={`${dash} ${circ-dash}`} strokeDashoffset={-offset}
+              transform={`rotate(-90 ${c} ${c})`} strokeLinecap="butt" />
+          );
+          offset+=dash;
+          return el;
+        })}
+        <text x={c} y={c-4} textAnchor="middle" fontSize={s*0.16} fontWeight="800" fill="var(--text)">{centerLabel}</text>
+        {centerSub && <text x={c} y={c+14} textAnchor="middle" fontSize={s*0.075} fontWeight="300" fill="var(--text-soft)">{centerSub}</text>}
+      </svg>
+    </div>
+  );
+}
+
+function ActivitiesTable({activities,onOpenActivity}){
+  const [copied,setCopied]=useState(false);
+  const byCategory={};
+  activities.forEach(a=>{const c=a.category||'Uncategorized'; (byCategory[c]=byCategory[c]||[]).push(a);});
+  const categories=Object.keys(byCategory).sort((a,b)=>a.localeCompare(b));
+  function fallbackCopy(html,text){
+    const holder=document.createElement('div');
+    holder.contentEditable='true';
+    holder.style.position='fixed'; holder.style.opacity='0'; holder.style.pointerEvents='none';
+    holder.innerHTML=html;
+    document.body.appendChild(holder);
+    const range=document.createRange(); range.selectNodeContents(holder);
+    const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    let ok=false;
+    try{ok=document.execCommand('copy');}catch(e){}
+    sel.removeAllRanges();
+    document.body.removeChild(holder);
+    if(!ok){
+      const ta=document.createElement('textarea');
+      ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try{document.execCommand('copy');}catch(e){}
+      document.body.removeChild(ta);
+    }
+  }
+  function copyTable(){
+    const header=['Category','Activity','Status','Participants'];
+    const rows=[];
+    categories.forEach(cat=>{byCategory[cat].forEach(a=>{rows.push([cat,a.title,U.statusMeta[a.status].label,a.participants.join(', ')]);});});
+    const text=[header,...rows].map(r=>r.join('\t')).join('\n');
+    const escape=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const html='<table border="1" cellspacing="0" cellpadding="6" style="border-collapse:collapse;font-family:sans-serif;font-size:13px">'
+      +'<thead><tr>'+header.map(h=>'<th style="background:#f2f2f5;text-align:left;padding:8px 12px">'+escape(h)+'</th>').join('')+'</tr></thead>'
+      +'<tbody>'+rows.map(r=>'<tr>'+r.map(c=>'<td style="padding:8px 12px">'+escape(c)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';
+    const done=()=>{setCopied(true);setTimeout(()=>setCopied(false),1800);};
+    if(navigator.clipboard && window.ClipboardItem){
+      const item=new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([text],{type:'text/plain'})});
+      navigator.clipboard.write([item]).then(done).catch(()=>{fallbackCopy(html,text);done();});
+    } else {
+      fallbackCopy(html,text);done();
+    }
+  }
+  return (
+    <section className="personal-section">
+      <div className="weekly-col-head" style={{justifyContent:'space-between',display:'flex',alignItems:'center'}}>
+        <h3 style={{margin:0}}>Activities this week</h3>
+        <button className="btn btn-secondary btn-sm" onClick={copyTable}>{copied?'Copied!':'Copy table'}</button>
+      </div>
+      {activities.length===0 ? <div className="empty-hint">No activities scheduled this week.</div> : (
+        <table className="summary-table">
+          <thead><tr><th>Category</th><th>Activity</th><th>Status</th><th>Participants</th></tr></thead>
+          <tbody>
+            {categories.map(cat=>byCategory[cat].map((a,i)=>{
+              const meta=U.statusMeta[a.status];
+              return (
+                <tr key={a.id} className="summary-row" onClick={()=>onOpenActivity(a.id)}>
+                  {i===0 && <td className="summary-cat" rowSpan={byCategory[cat].length}>{cat}</td>}
+                  <td>{a.title}{a.recurring && <span className="recurring-inline-tag" title="Recurring">{'\u21bb'}</span>}</td>
+                  <td><span className="status-dot-inline" style={{color:meta.color}}>{meta.label}</span></td>
+                  <td>{a.participants.join(', ')}</td>
+                </tr>
+              );
+            }))}
+          </tbody>
+        </table>
+      )}
+    </section>
+  );
+}
+
+function WeeklySummary({activities,team,weekDate,setWeekDate,onOpenActivity,onToggleTask}){
+  const start=U.startOfWeek(weekDate), end=U.endOfWeek(weekDate);
+  const startIso=U.iso(start), endIso=U.iso(end);
+  const inWeek=iso=>iso>=startIso && iso<=endIso;
+  const weekActivities=activities.filter(a=>inWeek(a.date));
+  const uniqueWeekActivities=U.uniqueActivities(weekActivities);
+  const byStatus={planned:[],progress:[],done:[]};
+  weekActivities.forEach(a=>byStatus[a.status].push(a));
+  const uniqueByStatus={planned:0,progress:0,done:0};
+  uniqueWeekActivities.forEach(a=>{uniqueByStatus[a.status]++;});
+  const byCategoryUnique={};
+  uniqueWeekActivities.forEach(a=>{const c=a.category||'Uncategorized'; byCategoryUnique[c]=(byCategoryUnique[c]||0)+1;});
+  const weekTasks=[];
+  activities.forEach(a=>a.tasks.forEach(t=>{if(inWeek(t.deadline)) weekTasks.push({...t,activityId:a.id,activityTitle:a.title});}));
+  const tasksDone=weekTasks.filter(t=>t.done);
+  const tasksOpen=weekTasks.filter(t=>!t.done);
+  const tasksOverdue=weekTasks.filter(t=>U.isTaskOverdue(t));
+  const byParticipant={};
+  uniqueWeekActivities.forEach(a=>a.participants.forEach(p=>{byParticipant[p]=(byParticipant[p]||0)+1;}));
+  const maxParticipant=Math.max(1,...Object.values(byParticipant));
+  const cols=[['done','Completed'],['progress','In Progress'],['planned','Planned']];
+  const categorySegments=Object.entries(byCategoryUnique).sort((a,b)=>b[1]-a[1]).map(([cat,n])=>({label:cat,value:n,color:U.categoryColors[cat]||'var(--text-soft)'}));
+  const statusSegments=[
+    {label:'Planned',value:uniqueByStatus.planned,color:U.statusMeta.planned.color},
+    {label:'In Progress',value:uniqueByStatus.progress,color:U.statusMeta.progress.color},
+    {label:'Done',value:uniqueByStatus.done,color:U.statusMeta.done.color}
+  ];
+  return (
+    <div className="personal-view">
+      <div className="weekly-header">
+        <button className="nav-btn" onClick={()=>setWeekDate(d=>{const x=new Date(d);x.setDate(x.getDate()-7);return x;})}>‹</button>
+        <div className="weekly-range">{U.fmtRange(start,end)}</div>
+        <button className="nav-btn" onClick={()=>setWeekDate(d=>{const x=new Date(d);x.setDate(x.getDate()+7);return x;})}>›</button>
+        <button className="btn btn-ghost btn-sm" onClick={()=>setWeekDate(new Date())}>This week</button>
+      </div>
+      <div className="analytics-grid">
+        <div className="analytics-card">
+          <div className="analytics-card-title">Activity by Category</div>
+          <div className="analytics-card-body">
+            <DonutChart segments={categorySegments} centerLabel={uniqueWeekActivities.length} centerSub="activities" />
+            <div className="legend">
+              {categorySegments.length===0 && <div className="empty-hint">No activities this week.</div>}
+              {categorySegments.map(s=>(
+                <div key={s.label} className="legend-row"><span className="legend-dot" style={{background:s.color}}></span><span className="legend-label">{s.label}</span><span className="legend-val">{s.value} · {Math.round(s.value/uniqueWeekActivities.length*100)||0}%</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="analytics-card">
+          <div className="analytics-card-title">Activity Status Overview</div>
+          <div className="analytics-card-body">
+            <DonutChart segments={statusSegments} centerLabel={uniqueWeekActivities.length} centerSub="activities" />
+            <div className="legend">
+              {statusSegments.map(s=>(
+                <div key={s.label} className="legend-row"><span className="legend-dot" style={{background:s.color}}></span><span className="legend-label">{s.label}</span><span className="legend-val">{s.value} · {Math.round(s.value/(uniqueWeekActivities.length||1)*100)}%</span></div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="analytics-card">
+          <div className="analytics-card-title">Task Completion</div>
+          <div className="task-stat-grid">
+            <div className="task-stat"><span className="task-stat-num">{weekTasks.length}</span><span className="task-stat-label">Total</span></div>
+            <div className="task-stat"><span className="task-stat-num" style={{color:'var(--done)'}}>{tasksDone.length}</span><span className="task-stat-label">Completed</span></div>
+            <div className="task-stat"><span className="task-stat-num" style={{color:'var(--planned)'}}>{tasksOpen.length}</span><span className="task-stat-label">Remaining</span></div>
+            <div className="task-stat"><span className="task-stat-num" style={{color:'var(--danger)'}}>{tasksOverdue.length}</span><span className="task-stat-label">Overdue</span></div>
+          </div>
+          <div className="progress-bar"><div className="progress-bar-fill" style={{width:(weekTasks.length?Math.round(tasksDone.length/weekTasks.length*100):0)+'%'}}></div></div>
+          <div className="progress-bar-label">{weekTasks.length?Math.round(tasksDone.length/weekTasks.length*100):0}% complete</div>
+        </div>
+        <div className="analytics-card">
+          <div className="analytics-card-title">Team Activity</div>
+          <div className="team-activity-list">
+            {Object.keys(byParticipant).length===0 && <div className="empty-hint">No participants this week.</div>}
+            {Object.entries(byParticipant).sort((a,b)=>b[1]-a[1]).map(([p,n],i,arr)=>(
+              <div key={p} className="team-activity-row">
+                <span className="avatar avatar-sm">{U.initials(p)}</span>
+                <span className="team-activity-name">{p}{arr.length>1 && i===0 && n>arr[arr.length-1][1] && <span className="team-activity-badge" title="Top contributor">{'\ud83d\udc51'}</span>}{arr.length>1 && i===arr.length-1 && n<arr[0][1] && <span className="team-activity-badge" title="Lowest activity">{'\ud83d\ude1e'}</span>}</span>
+                <div className="team-activity-bar-track"><div className="team-activity-bar-fill" style={{width:(n/maxParticipant*100)+'%'}}></div></div>
+                <span className="team-activity-count">{n}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <ActivitiesTable activities={uniqueWeekActivities} onOpenActivity={onOpenActivity} />
+      <div className="personal-columns">
+        <section className="personal-section">
+          <h3>Overdue <span className="count-badge count-danger">{weekTasks.filter(t=>U.isTaskOverdue(t)).length}</span></h3>
+          {weekTasks.filter(t=>U.isTaskOverdue(t)).length===0 && <div className="empty-hint">Nothing overdue this week.</div>}
+          {weekTasks.filter(t=>U.isTaskOverdue(t)).map(t=><TaskRow key={t.id+t.activityId} task={t} onToggle={()=>onToggleTask(t.activityId,t.id)} onRemove={()=>{}} />)}
+        </section>
+        <section className="personal-section">
+          <h3>Tasks Completed <span className="count-badge count-done">{tasksDone.length}</span></h3>
+          {tasksDone.length===0 && <div className="empty-hint">Nothing completed this week.</div>}
+          {tasksDone.map(t=><TaskRow key={t.id+t.activityId} task={t} onToggle={()=>onToggleTask(t.activityId,t.id)} onRemove={()=>{}} />)}
+        </section>
+        <section className="personal-section">
+          <h3>Tasks Still Open <span className="count-badge">{tasksOpen.length}</span></h3>
+          {tasksOpen.length===0 && <div className="empty-hint">Everything wrapped up.</div>}
+          {tasksOpen.map(t=><TaskRow key={t.id+t.activityId} task={t} onToggle={()=>onToggleTask(t.activityId,t.id)} onRemove={()=>{}} />)}
+        </section>
+      </div>
+    </div>
+  );
+}
+
+Object.assign(window,{LoginScreen,Toasts,StatusPill,CalendarGrid,ActivityDrawer,NewActivityModal,EditActivityModal,Sidebar,PersonalView,WeeklySummary,LiveActivityBar,ChatPanel});
