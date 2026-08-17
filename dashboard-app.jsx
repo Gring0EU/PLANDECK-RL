@@ -24,6 +24,7 @@ function App(){
   const [seed]=useState(()=>{const stored=loadStored(); return stored||window.DashData.buildSeedData();});
   const [team,setTeam]=useState(()=>window.DashData.normalizeTeam(seed.team));
   const [oldTeam,setOldTeam]=useState(()=>seed.oldTeam||[]);
+  const [categories,setCategories]=useState(()=>seed.categories||window.DashUtils.categories.map(c=>({name:c,color:window.DashUtils.categoryColors[c]})));
   const [activities,setActivities]=useState(()=>window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(seed.activities),seed.team));
   const [currentUser,setCurrentUser]=useState(seed.currentUser||null);
   const [synced,setSynced]=useState(false);
@@ -44,7 +45,32 @@ function App(){
   const chatSynced=useRef(false);
   const prevChatRef=useRef({});
 
-  useEffect(()=>{saveStored({team,oldTeam,activities,currentUser});},[team,oldTeam,activities,currentUser]);
+  useEffect(()=>{
+    U.categories=categories.map(c=>c.name);
+    U.categoryColors=categories.reduce((m,c)=>{m[c.name]=c.color;return m;},{});
+  },[categories]);
+  function renameCategory(oldName,newName,color){
+    const trimmed=newName.trim();
+    if(!trimmed) return;
+    if(trimmed!==oldName && categories.some(c=>c.name===trimmed)){ toast('"'+trimmed+'" already exists'); return; }
+    setCategories(cs=>cs.map(c=>c.name===oldName?{name:trimmed,color:color||c.color}:c));
+    if(trimmed!==oldName) setActivities(as=>as.map(a=>a.category===oldName?{...a,category:trimmed}:a));
+    toast('Category updated');
+  }
+  function addCategory(name,color){
+    const trimmed=name.trim();
+    if(!trimmed) return;
+    if(categories.some(c=>c.name===trimmed)){ toast('"'+trimmed+'" already exists'); return; }
+    setCategories(cs=>[...cs,{name:trimmed,color:color||U.categoryPalette[cs.length%U.categoryPalette.length]}]);
+    toast('"'+trimmed+'" added');
+  }
+  function deleteCategory(name){
+    setCategories(cs=>cs.filter(c=>c.name!==name));
+    setActivities(as=>as.map(a=>a.category===name?{...a,category:''}:a));
+    toast('"'+name+'" removed');
+  }
+
+  useEffect(()=>{saveStored({team,oldTeam,categories,activities,currentUser});},[team,oldTeam,categories,activities,currentUser]);
 
   useEffect(()=>{
     const unsub=window.DashDB.subscribeChats(remote=>{
@@ -313,7 +339,7 @@ function App(){
       </header>
       <div className="app-body">
         <Sidebar team={team} currentUser={currentUser} activities={activities} filters={filters} setFilters={setFilters}
-          onOpenActivity={setSelectedId} view={view} setView={setView} onAddTeammate={ensureTeammate} onRemoveTeammate={removeTeammate} onArchiveTeammate={archiveTeammate} onRestoreTeammate={restoreTeammate} oldTeam={oldTeam} onlineUsers={onlineUsers} />
+          onOpenActivity={setSelectedId} view={view} setView={setView} onAddTeammate={ensureTeammate} onRemoveTeammate={removeTeammate} onArchiveTeammate={archiveTeammate} onRestoreTeammate={restoreTeammate} oldTeam={oldTeam} categories={categories} onRenameCategory={renameCategory} onAddCategory={addCategory} onDeleteCategory={deleteCategory} onlineUsers={onlineUsers} />
         <main className="app-main">
           <LiveActivityBar activities={activities} onOpenActivity={setSelectedId} />
           {view==='calendar'
