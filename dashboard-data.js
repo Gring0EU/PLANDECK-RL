@@ -1,5 +1,5 @@
 function buildSeedData(){
-  const team=['Assia.D','Hugo.M','Killian.B','Benjamin.R'];
+  const team=['Assia.D','Hugo.M','Killian.B','Benjamin.R','Lina.C','Vincent.L','Arnaud.B'];
   return {team,activities:syncRecurringActivities([],team)};
 }
 
@@ -195,6 +195,7 @@ window.DashUtils={
   startOfMonth:(d)=>new Date(d.getFullYear(),d.getMonth(),1),
   endOfMonth:(d)=>new Date(d.getFullYear(),d.getMonth()+1,0),
   fmtMonth:(d)=>d.toLocaleDateString(undefined,{month:'long',year:'numeric'}),
+  categoryPalette:['#79D6FF','#FFA400','#3BAF90','#9DD9D2','#FF6C0E','#E6A4AD','#AC5D85','#FFC545'],
   categories:['Equity','Fixed Income','Funds','Alternative','CIO','DPM','Advisory','Banker'],
   categoryColors:{'Equity':'#79D6FF','Fixed Income':'#FFA400','Funds':'#3BAF90','Alternative':'#9DD9D2','CIO':'#FF6C0E','DPM':'#E6A4AD','Advisory':'#AC5D85','Banker':'#FFC545'},
   uniqueActivities:(list)=>{
