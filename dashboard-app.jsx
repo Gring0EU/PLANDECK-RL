@@ -105,6 +105,8 @@ function App(){
       skipNextSave.current=true;
       const remoteTeam=window.DashData.normalizeTeam(remote.team);
       setTeam(remoteTeam);
+      if(remote.oldTeam) setOldTeam(remote.oldTeam);
+      if(remote.categories) setCategories(remote.categories);
       setActivities(window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(remote.activities),remoteTeam));
       setSynced(true);
     });
@@ -114,8 +116,8 @@ function App(){
   useEffect(()=>{
     if(!synced && !skipNextSave.current) return;
     if(skipNextSave.current){skipNextSave.current=false; return;}
-    window.DashDB.save({team,activities});
-  },[team,activities]);
+    window.DashDB.save({team,oldTeam,categories,activities});
+  },[team,oldTeam,categories,activities]);
 
   useEffect(()=>{
     if(!currentUser) return;
