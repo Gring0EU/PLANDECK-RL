@@ -1,5 +1,5 @@
 function buildSeedData(){
-  const team=['Assia.D','Hugo.M','Killian.B','Benjamin.R','Lina.C','Vincent.L','Arnaud.B'];
+  const team=['Assia.D','Hugo.M','Killian.B','Benjamin.R'];
   return {team,activities:syncRecurringActivities([],team)};
 }
 
