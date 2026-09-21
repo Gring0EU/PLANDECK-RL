@@ -246,9 +246,13 @@ function CategoryPicker({category,onChange}){
   );
 }
 
-function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onEditTaskDeadline,onDelete,onClaim,onUnclaim,onEditActivity}){
+function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChangeCategory,onAddParticipant,onRemoveParticipant,onAddTeammate,onAddTask,onToggleTask,onRemoveTask,onEditTaskDeadline,onDelete,onClaim,onUnclaim,onEditActivity,customRules,onSaveRecurrence,onRemoveRecurrence}){
   const [editing,setEditing]=useState(false);
+  const [repeating,setRepeating]=useState(false);
   if(!activity) return null;
+  const ruleKey=activity.recurring?String(activity.id).replace(/^rec-/,'').replace(/-\d{4}-\d{2}-\d{2}$/,''):('custom-'+activity.id);
+  const existingRule=(customRules||[]).find(r=>r.key===ruleKey)||null;
+  const isBuiltInRecurring=activity.recurring && !existingRule;
   const spans=(activity.endDate||activity.date)>activity.date;
   return (
     <div className="drawer-overlay" onClick={onClose}>
@@ -260,6 +264,10 @@ function ActivityDrawer({activity,team,currentUser,onClose,onChangeStatus,onChan
           <button className="btn btn-secondary btn-sm" onClick={()=>setEditing(true)} style={{marginLeft:'auto'}}>Edit</button>
         </div>
         {activity.recurring && <span className="chip recurring-chip">↻ Recurring · {activity.recurringLabel}</span>}
+        {!isBuiltInRecurring && (
+          <button className="btn btn-ghost btn-sm" style={{alignSelf:'flex-start'}} onClick={()=>setRepeating(true)}>{existingRule?'↻ Edit recurrence':'↻ Make recurring'}</button>
+        )}
+        {repeating && <RecurrenceModal activity={activity} existingRule={existingRule} onClose={()=>setRepeating(false)} onSave={r=>{setRepeating(false);onSaveRecurrence(r);}} onRemove={k=>{setRepeating(false);onRemoveRecurrence(k);}} />}
         <h2 className="drawer-title">{activity.title}</h2>
         <div className="drawer-date">{spans?U.fmtDateLong(activity.date)+' \u2192 '+U.fmtDateLong(activity.endDate):U.fmtDateLong(activity.date)}{activity.time?' · Due '+activity.time:''}</div>
         {activity.claimedBy ? (
