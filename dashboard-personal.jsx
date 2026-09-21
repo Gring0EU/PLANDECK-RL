@@ -89,25 +89,28 @@ function PersonalLogTable({rows,periodLabel,onOpenActivity}){
 
 function PersonalDashboard({currentUser,activities,onOpenActivity,period,setPeriod,weekDate,setWeekDate,monthDate,setMonthDate}){
   const U=window.DashUtils;
+  const [scope,setScope]=React.useState('mine');
   const todayIso=U.todayIso();
-  const mine=activities.filter(a=>a.participants.includes(currentUser));
+  const pool=scope==='all'?activities:activities.filter(a=>a.participants.includes(currentUser));
   let rangeActivities,rangeLabel,tasksInRange;
   if(period==='week'){
     const start=U.startOfWeek(weekDate),end=U.endOfWeek(weekDate);
     const s=U.iso(start),e=U.iso(end);
-    rangeActivities=mine.filter(a=>a.date>=s&&a.date<=e);
+    rangeActivities=pool.filter(a=>a.date>=s&&a.date<=e);
     rangeLabel=U.fmtRange(start,end);
   } else if(period==='month'){
     const start=U.startOfMonth(monthDate),end=U.endOfMonth(monthDate);
     const s=U.iso(start),e=U.iso(end);
-    rangeActivities=mine.filter(a=>a.date>=s&&a.date<=e);
+    rangeActivities=pool.filter(a=>a.date>=s&&a.date<=e);
     rangeLabel=U.fmtMonth(monthDate);
   } else {
-    rangeActivities=mine.filter(a=>a.date<=todayIso);
+    rangeActivities=pool.filter(a=>a.date<=todayIso);
     rangeLabel='All time';
   }
   tasksInRange=[];
-  rangeActivities.forEach(a=>{a.tasks.forEach(t=>{if(t.assignee===currentUser||!t.assignee) tasksInRange.push(t);});});
+  rangeActivities.forEach(a=>{a.tasks.forEach(t=>{
+    if(scope==='all'||t.assignee===currentUser||!t.assignee) tasksInRange.push(t);
+  });});
   const uniqueRange=U.uniqueActivities(rangeActivities).sort((a,b)=>a.date<b.date?1:-1);
   const byCat={};
   uniqueRange.forEach(a=>{const c=a.category||'Uncategorized'; byCat[c]=(byCat[c]||0)+1;});
@@ -124,7 +127,7 @@ function PersonalDashboard({currentUser,activities,onOpenActivity,period,setPeri
   const tasksOverdue=tasksInRange.filter(t=>U.isTaskOverdue(t));
   const completionRate=tasksInRange.length?Math.round(tasksDone.length/tasksInRange.length*100):0;
   const rows=uniqueRange.map(a=>{
-    const myTasks=a.tasks.filter(t=>t.assignee===currentUser||!t.assignee);
+    const myTasks=scope==='all'?a.tasks:a.tasks.filter(t=>t.assignee===currentUser||!t.assignee);
     const meta=U.statusMeta[a.status];
     return {id:a.id,category:a.category||'Uncategorized',title:a.title,date:U.fmtDate(a.date),status:meta.label,statusColor:meta.color,tasksLabel:myTasks.length?myTasks.filter(t=>t.done).length+'/'+myTasks.length:'\u2014'};
   });
@@ -153,6 +156,10 @@ function PersonalDashboard({currentUser,activities,onOpenActivity,period,setPeri
           </React.Fragment>
         )}
         {period==='all' && <div className="weekly-range">{rangeLabel}</div>}
+        <div className="chip-row" style={{margin:0,marginLeft:'auto'}}>
+          <button className={"chip chip-clickable"+(scope==='mine'?' chip-active':'')} onClick={()=>setScope('mine')}>Mine</button>
+          <button className={"chip chip-clickable"+(scope==='all'?' chip-active':'')} onClick={()=>setScope('all')}>All team</button>
+        </div>
       </div>
       <div className="analytics-grid">
         <div className="analytics-card">
