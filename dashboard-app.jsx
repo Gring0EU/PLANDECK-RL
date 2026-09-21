@@ -25,10 +25,11 @@ function App(){
   const [team,setTeam]=useState(()=>window.DashData.normalizeTeam(seed.team));
   const [oldTeam,setOldTeam]=useState(()=>seed.oldTeam||[]);
   const [categories,setCategories]=useState(()=>seed.categories||window.DashUtils.categories.map(c=>({name:c,color:window.DashUtils.categoryColors[c]})));
-  const [activities,setActivities]=useState(()=>window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(seed.activities),seed.team));
+  const [customRules,setCustomRules]=useState(()=>seed.customRules||[]);
+  const [activities,setActivities]=useState(()=>window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(seed.activities),seed.team,seed.customRules||[]));
   const [currentUser,setCurrentUser]=useState(seed.currentUser||null);
   const [synced,setSynced]=useState(false);
-  const skipNextSave=useRef(false);
+  const lastSyncedRef=useRef(null);
   const [view,setView]=useState('calendar');
   const [monthDate,setMonthDate]=useState(new Date());
   const [weekDate,setWeekDate]=useState(new Date());
@@ -102,22 +103,54 @@ function App(){
   useEffect(()=>{
     const unsub=window.DashDB.subscribe(remote=>{
       if(!remote){setSynced(true); return;}
-      skipNextSave.current=true;
       const remoteTeam=window.DashData.normalizeTeam(remote.team);
+      const remoteOld=remote.oldTeam?window.DashData.normalizeTeam(remote.oldTeam):[];
+      const remoteCats=remote.categories?window.DashData.normalizeTeam(remote.categories):null;
+      const remoteRules=remote.customRules?window.DashData.normalizeTeam(remote.customRules):[];
+      const remoteActs=window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(remote.activities),remoteTeam,remoteRules);
+      setCustomRules(remoteRules);
       setTeam(remoteTeam);
-      if(remote.oldTeam) setOldTeam(remote.oldTeam);
-      if(remote.categories) setCategories(remote.categories);
-      setActivities(window.DashData.syncRecurringActivities(window.DashData.normalizeActivities(remote.activities),remoteTeam));
+      setOldTeam(remoteOld);
+      if(remoteCats) setCategories(remoteCats);
+      setActivities(remoteActs);
+      // Record exactly what we just received so the save effect can tell an echo of our
+      // own write apart from a genuine local edit. A boolean skip-flag loses edits here:
+      // when remote == local React bails out of re-rendering and the flag never clears.
+      lastSyncedRef.current=JSON.stringify({team:remoteTeam,oldTeam:remoteOld,categories:remoteCats||categories,customRules:remoteRules,activities:remoteActs});
       setSynced(true);
     });
     return unsub;
   },[]);
 
   useEffect(()=>{
-    if(!synced && !skipNextSave.current) return;
-    if(skipNextSave.current){skipNextSave.current=false; return;}
-    window.DashDB.save({team,oldTeam,categories,activities});
-  },[team,oldTeam,categories,activities]);
+    if(!synced) return;
+    const payload={team,oldTeam,categories,customRules,activities};
+    const ser=JSON.stringify(payload);
+    if(ser===lastSyncedRef.current) return;
+    lastSyncedRef.current=ser;
+    window.DashDB.save(payload);
+  },[synced,team,oldTeam,categories,customRules,activities]);
+
+  function saveRecurrence(rule){
+    setCustomRules(rs=>{
+      const next=rs.some(r=>r.key===rule.key)?rs.map(r=>r.key===rule.key?rule:r):[...rs,rule];
+      setActivities(as=>window.DashData.syncRecurringActivities(as,team,next));
+      return next;
+    });
+    setSelectedId(null);
+    toast('"'+rule.title+'" now repeats');
+  }
+  function removeRecurrence(key){
+    setCustomRules(rs=>{
+      const next=rs.filter(r=>r.key!==key);
+      const todayIso=U.todayIso();
+      // Drop only future occurrences of this rule; anything already past stays as history.
+      setActivities(as=>as.filter(a=>!(a.recurring && a.id.indexOf('rec-'+key+'-')===0 && a.date>=todayIso)));
+      return next;
+    });
+    setSelectedId(null);
+    toast('Recurrence stopped');
+  }
 
   useEffect(()=>{
     if(!currentUser) return;
@@ -357,7 +390,8 @@ function App(){
       <ActivityDrawer activity={selected} team={team} currentUser={currentUser} onClose={()=>setSelectedId(null)}
         onChangeStatus={changeStatus} onChangeCategory={changeCategory} onAddParticipant={addParticipant} onRemoveParticipant={removeParticipant}
         onAddTeammate={addTeammateAndParticipant} onAddTask={addTask} onToggleTask={toggleTask} onRemoveTask={removeTask} onEditTaskDeadline={editTaskDeadline} onDelete={deleteActivity}
-        onClaim={claimActivity} onUnclaim={unclaimActivity} onEditActivity={editActivity} />
+        onClaim={claimActivity} onUnclaim={unclaimActivity} onEditActivity={editActivity}
+        customRules={customRules} onSaveRecurrence={saveRecurrence} onRemoveRecurrence={removeRecurrence} />
       {newActivityDate && <NewActivityModal date={newActivityDate} team={team} onClose={()=>setNewActivityDate(null)} onCreate={createActivity} onAddTeammate={ensureTeammate} />}
       <Toasts toasts={toasts} onDismiss={id=>setToasts(ts=>ts.filter(t=>t.id!==id))} />
     </div>
