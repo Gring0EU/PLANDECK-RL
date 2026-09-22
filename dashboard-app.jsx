@@ -128,7 +128,8 @@ function App(){
     const ser=JSON.stringify(payload);
     if(ser===lastSyncedRef.current) return;
     lastSyncedRef.current=ser;
-    window.DashDB.save(payload);
+    // Firebase rejects undefined anywhere in the tree; JSON round-trip drops those keys.
+    window.DashDB.save(JSON.parse(ser));
   },[synced,team,oldTeam,categories,customRules,activities]);
 
   function saveRecurrence(rule){
@@ -293,7 +294,7 @@ function App(){
     setActivities(as=>as.map(a=>a.id!==activityId?a:{...a,tasks:a.tasks.filter(t=>t.id!==taskId)}));
   }
   function createActivity(data){
-    const a={...data,id:U.uid(),tasks:[]};
+    const a={time:null,endDate:data.date,claimedBy:null,claimedAt:null,recurring:false,recurringLabel:null,notifyDate:null,notifyTime:null,notified:false,history:[],...data,id:U.uid(),tasks:[]};
     setActivities(as=>[...as,a]);
     setNewActivityDate(null);
     toast('"'+a.title+'" created');
